@@ -1,0 +1,56 @@
+@startuml use-cases-workshop
+' Мастерская: алгоритмы, публикация, рейтинг. Связи include/extend — по потокам в use-cases.md.
+!include _style.iuml
+title Мастерская: алгоритмы
+
+actor "Пользователь" as User
+actor "Автор алгоритма" as Author
+actor "Модератор" as Moderator
+actor "Планировщик" as Scheduler <<система>>
+Author --|> User
+Moderator --|> User
+
+rectangle "Мастерская" {
+  usecase "UC-20\nФоркнуть алгоритм" as UC20
+  usecase "UC-12\nНаписать стратегию на DSL" as UC12
+  usecase "UC-19\nОпубликовать версию" as UC19
+  usecase "UC-13\nПроверить на чтение будущего" as UC13
+  usecase "UC-14\nЗапустить прогон" as UC14
+  usecase "UC-16\nWalk-forward" as UC16
+  usecase "UC-18\nПовторить прогон" as UC18
+  usecase "UC-17\nСтресс-сценарий" as UC17
+  usecase "UC-29\nСинтетический рынок" as UC29 <<развитие>>
+  usecase "UC-30\nПополнения (DCA)" as UC30 <<развитие>>
+  usecase "UC-8\nПолучить отчёт" as UC8
+  usecase "UC-15\nНаивный против честного" as UC15
+  usecase "UC-24\nПосчитать рейтинг" as UC24
+  usecase "UC-21\nСкрыть из каталога" as UC21
+  usecase "UC-22\nВыбрать алгоритмы в каталоге" as UC22
+  usecase "UC-23\nУдалить насовсем" as UC23
+}
+
+Author --> UC12
+Author --> UC14
+Author --> UC16
+Author --> UC19
+Author --> UC21
+User --> UC18
+User --> UC22
+Moderator --> UC23
+Scheduler --> UC24
+
+UC14 ..> UC13 : <<include>>
+UC19 ..> UC13 : <<include>>
+UC16 ..> UC14 : <<include>>
+UC18 ..> UC14 : <<include>>
+UC20 ..> UC12 : <<include>>
+
+UC15 .> UC8 : <<extend>>\n[прогон алгоритма]
+UC17 .> UC14 : <<extend>>\n[выбран сценарий]
+UC20 .> UC22 : <<extend>>
+UC29 .> UC14 : <<extend>>
+UC30 .> UC14 : <<extend>>
+
+UC14 ..> UC8 : строит отчёт
+UC19 ..> UC24 : запускает
+@enduml

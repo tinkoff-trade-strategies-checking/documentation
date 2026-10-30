@@ -1,0 +1,50 @@
+@startuml use-cases-arena
+' Арена: ручная торговля. Связи include/extend — по потокам в use-cases.md.
+!include _style.iuml
+title Арена: ручная торговля
+
+actor "Пользователь" as User
+actor "Трейдер" as Trader
+Trader --|> User
+
+rectangle "Арена" {
+  usecase "UC-2\nЗапустить ручную сессию" as UC2
+  usecase "UC-3\nУправлять временем в плеере" as UC3
+  usecase "UC-4\nВыставить заявку" as UC4
+  usecase "UC-5\nИзменить или отменить заявку" as UC5
+  usecase "UC-6\nПродолжить после обрыва" as UC6
+  usecase "UC-7\nЗавершить сессию" as UC7
+  usecase "UC-8\nПолучить отчёт" as UC8
+  usecase "UC-9\nРазобрать расхождения" as UC9
+  usecase "UC-10\nПосмотреть историю" as UC10
+  usecase "UC-11\nВоспроизвести сессию" as UC11
+  usecase "UC-27\nЧитать новости на арене" as UC27 <<развитие>>
+  usecase "UC-29\nСинтетический рынок" as UC29 <<развитие>>
+  usecase "UC-30\nПополнения (DCA)" as UC30 <<развитие>>
+}
+
+rectangle "Мастерская" {
+  usecase "UC-14\nЗапустить прогон" as UC14
+  usecase "UC-22\nВыбрать алгоритмы в каталоге" as UC22
+}
+
+Trader --> UC2
+Trader --> UC3
+Trader --> UC4
+Trader --> UC7
+Trader --> UC8
+Trader --> UC9
+User --> UC10
+User --> UC22
+
+UC6 .> UC3 : <<extend>>\n[обрыв связи, F5]
+UC5 .> UC4 : <<extend>>\n[есть активная заявка]
+UC9 .> UC8 : <<extend>>\n[сессия человека]
+UC11 .> UC10 : <<extend>>
+UC27 .> UC3 : <<extend>>
+UC29 .> UC2 : <<extend>>
+UC30 .> UC2 : <<extend>>
+
+UC9 ..> UC14 : запускает\n(алгоритм на том же отрезке)
+UC9 ..> UC22 : выбор алгоритмов\nдля сравнения
+@enduml

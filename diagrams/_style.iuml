@@ -1,0 +1,17 @@
+' Общий стиль диаграмм юзкейсов. Подключается через !include _style.iuml
+!pragma layout smetana
+left to right direction
+skinparam defaultFontName Arial
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #FFFFFF
+  BorderColor #444444
+  BackgroundColor<<развитие>> #EEEEEE
+  BorderColor<<развитие>> #999999
+  FontColor<<развитие>> #777777
+}
+skinparam package {
+  BorderColor #666666
+}

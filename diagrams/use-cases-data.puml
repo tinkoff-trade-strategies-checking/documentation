@@ -1,0 +1,33 @@
+@startuml use-cases-data
+' Данные: загрузка снапшотов, архив сделок, новости. Связи — по потокам в use-cases.md.
+!include _style.iuml
+title Данные
+
+actor "Оператор данных" as DataOp
+actor "MOEX ISS" as ISS <<система>>
+actor "Источники истории\n(MOEX, MFD, архивы)" as HistSrc <<система>>
+actor "Источник новостей" as NewsSrc <<система>>
+
+rectangle "Подготовка данных" {
+  usecase "UC-25\nЗагрузить снапшот MOEX ISS" as UC25
+  usecase "UC-26\nИмпортировать архив сделок" as UC26
+  usecase "UC-28\nСобрать и обезличить новости" as UC28 <<развитие>>
+}
+
+rectangle "Платформа" {
+  usecase "UC-2\nЗапустить ручную сессию" as UC2
+  usecase "UC-14\nЗапустить прогон" as UC14
+  usecase "UC-27\nЧитать новости на арене" as UC27 <<развитие>>
+}
+
+DataOp --> UC25
+DataOp --> UC26
+UC25 --> ISS
+UC26 --> HistSrc
+UC28 --> NewsSrc
+
+UC2 ..> UC25 : использует\nснапшот и календарь
+UC2 ..> UC26 : использует\nархив сделок
+UC14 ..> UC26 : использует\nархив сделок
+UC27 ..> UC28 : использует
+@enduml

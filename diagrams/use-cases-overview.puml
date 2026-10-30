@@ -1,0 +1,99 @@
+@startuml use-cases-overview
+' Обзор всех юзкейсов из use-cases.md: акторы и UC по областям, без include/extend.
+' Подробные связи — на диаграммах use-cases-arena, use-cases-workshop, use-cases-data.
+!include _style.iuml
+title Т-Инвестиции: юзкейсы (обзор)
+
+actor "Пользователь" as User
+actor "Трейдер" as Trader
+actor "Автор алгоритма" as Author
+actor "Модератор" as Moderator
+actor "Оператор данных" as DataOp
+actor "Планировщик" as Scheduler <<система>>
+actor "MOEX ISS" as ISS <<система>>
+actor "Источники истории" as HistSrc <<система>>
+actor "Источник новостей" as NewsSrc <<система>>
+
+Trader --|> User
+Author --|> User
+Moderator --|> User
+
+rectangle "Платформа" {
+  package "Общее" {
+    usecase "UC-1\nЗарегистрироваться и войти" as UC1
+    usecase "UC-10\nПосмотреть историю" as UC10
+    usecase "UC-11\nВоспроизвести сессию" as UC11
+    usecase "UC-18\nПовторить прогон" as UC18
+    usecase "UC-22\nВыбрать алгоритмы в каталоге" as UC22
+  }
+  package "Арена" {
+    usecase "UC-2\nЗапустить ручную сессию" as UC2
+    usecase "UC-3\nУправлять временем в плеере" as UC3
+    usecase "UC-4\nВыставить заявку" as UC4
+    usecase "UC-5\nИзменить или отменить заявку" as UC5
+    usecase "UC-6\nПродолжить после обрыва" as UC6
+    usecase "UC-7\nЗавершить сессию" as UC7
+    usecase "UC-8\nПолучить отчёт" as UC8
+    usecase "UC-9\nРазобрать расхождения" as UC9
+  }
+  package "Мастерская" {
+    usecase "UC-12\nНаписать стратегию на DSL" as UC12
+    usecase "UC-13\nПроверить на чтение будущего" as UC13
+    usecase "UC-14\nЗапустить прогон" as UC14
+    usecase "UC-15\nНаивный против честного" as UC15
+    usecase "UC-16\nWalk-forward" as UC16
+    usecase "UC-17\nСтресс-сценарий" as UC17
+    usecase "UC-19\nОпубликовать версию" as UC19
+    usecase "UC-20\nФоркнуть алгоритм" as UC20
+    usecase "UC-21\nСкрыть из каталога" as UC21
+    usecase "UC-23\nУдалить насовсем" as UC23
+    usecase "UC-24\nПосчитать рейтинг" as UC24
+  }
+  package "Данные" {
+    usecase "UC-25\nЗагрузить снапшот MOEX ISS" as UC25
+    usecase "UC-26\nИмпортировать архив сделок" as UC26
+  }
+  package "Развитие" {
+    usecase "UC-27\nЧитать новости на арене" as UC27 <<развитие>>
+    usecase "UC-28\nСобрать и обезличить новости" as UC28 <<развитие>>
+    usecase "UC-29\nСинтетический рынок" as UC29 <<развитие>>
+    usecase "UC-30\nПополнения (DCA)" as UC30 <<развитие>>
+  }
+}
+
+User --> UC1
+User --> UC10
+User --> UC11
+User --> UC18
+User --> UC22
+User --> UC29
+User --> UC30
+
+Trader --> UC2
+Trader --> UC3
+Trader --> UC4
+Trader --> UC5
+Trader --> UC6
+Trader --> UC7
+Trader --> UC8
+Trader --> UC9
+Trader --> UC27
+
+Author --> UC12
+Author --> UC13
+Author --> UC14
+Author --> UC15
+Author --> UC16
+Author --> UC17
+Author --> UC19
+Author --> UC20
+Author --> UC21
+
+Moderator --> UC23
+Scheduler --> UC24
+DataOp --> UC25
+DataOp --> UC26
+UC25 --> ISS
+UC26 --> HistSrc
+UC28 --> NewsSrc
+@enduml
