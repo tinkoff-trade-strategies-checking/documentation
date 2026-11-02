@@ -321,7 +321,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `StrategySummary` | `id`, `name`, `hidden`, `deleted`, `updatedAt`, `latestVersion?: {id, number, published}` |
 | `Strategy` | `StrategySummary` + `draftSource`, `forkedFrom?: {strategyId, versionId, versionNumber, sourceDeleted: bool}`, `versions: VersionSummary[]` |
 | `VersionSummary` | `id`, `number`, `published`, `checkLevel`, `lintWarnings: int`, `createdAt` |
-| `Version` | `VersionSummary` + `strategyId`, `strategyName`, `author` (имя или «Платформа»), `source`, `params`, `diagnostics`, `rating?: Rating` |
+| `Version` | `VersionSummary` + `strategyId`, `strategyName`, `author` (имя или «Платформа»), `source`, `params`, `diagnostics` (рейтинга здесь нет: он в модуле analysis, отдельный эндпоинт) |
 | `Rating` | `epochId`, `status: PENDING\|DONE\|INVALID`, `score?`, `byRegime: {UP\|DOWN\|FLAT: {score?, windows}}`, `medianSharpe?`, `medianMaxDrawdown?`, `profitableShare?`, `invalidReason?` |
 | `CatalogItem` | `strategyId`, `name`, `author`, `latestVersion: {id, number}`, `rating?`, `lintWarnings` |
 | `RunRequest` | `versionId`, `params: [{name, value}]`, `timeframe`, `durationDays: int ≥ 1`, `instrumentCount?`, `start: SessionStart`, `stress?: StressRequest` |
@@ -358,6 +358,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `GET /api/comparisons/{id}` | analysis | → `Comparison` |
 | `GET /api/history?blindOnly=bool&kind=SESSION\|RUN` | analysis | → `HistoryItem[]` (свои, новые первыми) |
 | `GET /api/catalog?sort=score\|newest&regime=UP\|DOWN\|FLAT` | analysis | → `CatalogItem[]` |
+| `GET /api/versions/{id}/rating` | analysis | → `Rating` (текущей эпохи); 404, если расчёта ещё не было |
 | `GET /api/strategies` | workshop | → `StrategySummary[]` (свои) |
 | `POST /api/strategies` | workshop | `{name, source?}` → 201 `Strategy` |
 | `GET /api/strategies/{id}` | workshop | → `Strategy` |
@@ -411,7 +412,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 
 **Files:**
 - Modify: `backend/build.gradle.kts` (плагин `com.google.protobuf`, `io.grpc:grpc-netty-shaded`, `grpc-protobuf`, `grpc-stub`, `grpc-inprocess` (test), `protobuf-java`, `com.clickhouse:clickhouse-jdbc` (classifier `all`), `com.atlassian.oai:swagger-request-validator-core`, `org.testcontainers:clickhouse`), `backend/src/main/resources/application.yml` (все ключи из «Соглашений»), `backend/.github/workflows/ci.yml` (шаги: проверка копии proto и линтер OpenAPI), `backend/src/main/java/ru/ttsc/lab/api/SecurityConfig.java` (`@EnableMethodSecurity`), `backend/AGENTS.md`.
-- Create: `backend/scripts/sync-proto.sh`, `backend/src/main/proto/simulation.proto`, `backend/src/main/proto/common.proto` (копии), `backend/src/main/java/ru/ttsc/lab/api/LabProperties.java` (`@ConfigurationProperties("lab")`, records на каждую группу, деньги — `BigDecimal`), `backend/src/test/java/ru/ttsc/lab/api/OpenApiContractAssert.java`, `backend/src/test/java/ru/ttsc/lab/api/OpenApiContractAssertTest.java`.
+- Create: `backend/scripts/sync-proto.sh`, `backend/src/main/proto/simulation.proto`, `backend/src/main/proto/common.proto` (копии), `backend/src/main/java/ru/ttsc/lab/config/{package-info,LabProperties}.java` (отдельный модуль `config` без зависимостей; `@ConfigurationProperties("lab")`, records на каждую группу, деньги и доли — `BigDecimal`), `backend/src/test/java/ru/ttsc/lab/api/OpenApiContractAssert.java`, `backend/src/test/java/ru/ttsc/lab/api/OpenApiContractAssertTest.java`.
 
 Интерфейсы:
 - `sync-proto.sh [путь-к-core]` (по умолчанию `../core`) копирует `proto/*.proto` в `src/main/proto/`; `--check` — выход 1 и diff, если копия отличается. CI делает `git clone --depth 1 https://github.com/tinkoff-trade-strategies-checking/core ../core && scripts/sync-proto.sh --check`.
@@ -472,7 +473,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 
 - **Репозиторий:** backend (`deploy/clickhouse/`, `tools/marketdata-import/`). **Волна:** 0. **Связано:** ФТ-3, ФТ-4, ФТ-5, INV-5.
 - Схема (коммит `f5a4c6c` в ветке `3-marketdata-import`): `snapshots` / `snapshots_ready`, `securities` (`secid`, `name`, `sector`, `lot_size UInt32`, `price_step Decimal(18,6)`), `trading_calendar` (`date`, `is_trading`, `session_open`, `session_close`), `candles` (`interval_sec`, `ts_open`, OHLC `Decimal(18,6)`, `volume UInt64`, `available_at`), `trades`, параметризованный view `candles_from_trades(snapshot_id, interval_sec)`.
-- Задачи 17 и 34 читают ровно эти таблицы. Допущения плана (подтверждаются с владельцем DI): объём свечей — в штуках, ядро делит на `lot_size` вниз; сессия читает один `snapshot_id`; IMOEX — свечи `secid = 'IMOEX'`; фикстура для разработки — снапшот `source = 'fixture'`.
+- Задачи 17, 34 и 62 читают ровно эти таблицы. По README импортёра: количество и объём — в штуках (ядро делит на `lot_size` вниз); фикстура — снапшот `ec6b3c97-7036-56cf-ba4d-ec4e919e682d` (`marketdata-import fixture`): SBER, GAZP, LKOH — минутные свечи 28–29.10.2026, дневные 19–30.10.2026, синтетические сделки `SYNTH`; IMOEX в фикстуре нет. Решение плана: сессия читает один `snapshot_id`; IMOEX, когда появится, — свечи `secid = 'IMOEX'`.
 
 ---
 
@@ -1152,7 +1153,11 @@ DivergenceResult analyzeDivergences(const SessionSpec&, std::shared_ptr<const Ti
 
 ## Трек backend
 
-Общее для задач трека: модуль `ru.ttsc.lab.<модуль>`; публичный API модуля — типы в корне пакета, реализация — `<модуль>.internal`, контроллеры и DTO (records) — `<модуль>.web`. Доступ к данным — Spring Data JDBC / `JdbcClient`. Тесты с PostgreSQL — Testcontainers (как `FlywayMigrationTest`); тест каждого эндпоинта вызывает `OpenApiContractAssert.assertMatches` (задача 4). Воркер в тестах — `@MockitoBean WorkerClient` с заранее собранными proto-ответами. Проверка — `./gradlew build` (PASS, включая `ModularityTests` и `MoneyTypesArchTest`), коммит по-русски. «Готово, когда» по умолчанию — CI `backend` зелёный и перечисленные тесты есть.
+Общее для задач трека: модуль `ru.ttsc.lab.<модуль>`; публичный API модуля — типы в корне пакета, реализация — `<модуль>.internal`, контроллеры и DTO (records) — `<модуль>.web`.
+
+Граф модулей Spring Modulith (без циклов, иначе падает `ModularityTests`): `config`, `identity` — ни от кого не зависят; `worker` → `config`; `marketdata` → `config`; `workshop` → `worker`, `identity`, `config`; `sessions` → `worker`, `marketdata`, `identity`, `config`; `simulation` → `worker`, `workshop`, `marketdata`, `identity`, `config`; `analysis` → все остальные. События (`SessionFinished`, `RunCompleted`, `VersionPublished`) объявлены в модуле-источнике и слушаются в `analysis`. Обратных вызовов (например, `workshop` → `analysis`) нет.
+
+Полей `double`/`float` в классах `ru.ttsc.lab` нет (`MoneyTypesArchTest`): параметры стратегий в DTO — `BigDecimal`; метрики — в сохранённом JSON (`JsonNode`) или в records пакета `analysis.metrics` (задача 44 исключает его из теста). Доступ к данным — Spring Data JDBC / `JdbcClient`. Тесты с PostgreSQL — Testcontainers (как `FlywayMigrationTest`); тест каждого эндпоинта вызывает `OpenApiContractAssert.assertMatches` (задача 4). Воркер в тестах — `@MockitoBean WorkerClient` с заранее собранными proto-ответами. Проверка — `./gradlew build` (PASS, включая `ModularityTests` и `MoneyTypesArchTest`), коммит по-русски. «Готово, когда» по умолчанию — CI `backend` зелёный и перечисленные тесты есть.
 
 ### Задача 12: Учётные записи (уже в работе, task-list #7)
 
@@ -1160,11 +1165,13 @@ DivergenceResult analyzeDivergences(const SessionSpec&, std::shared_ptr<const Ti
 - Ветка `4-identity`: `V2__identity.sql`, `/api/auth/register`, `/api/auth/login`, `/api/me` (и выход), cookie-сессия, CSRF, `ProblemJsonHandlers`. Публичный API модуля, на который опираются задачи ниже: `ru.ttsc.lab.identity.CurrentUser` (id текущего пользователя, роли), `ru.ttsc.lab.identity.Role` (`USER`, `MODERATOR`).
 - **Готово, когда:** влито; `openapi.yaml` (задача 2) описывает эндпоинты так, как они сделаны.
 
-### Задача 33: simulation: клиент воркера
+### Задача 33: worker: клиент воркера (отдельный модуль)
 
 - **Размер:** S. **Волна:** 3. **Зависит от:** 4. **Связано:** ADR-0007, ADR-0008, INV-6.
 
-**Files:** Create: `simulation/WorkerClient.java`, `simulation/Decimals.java`, `simulation/MarketSpecs.java`, `simulation/WorkerUnavailableException.java`, `simulation/WorkerRejectedException.java`, `simulation/DataUnavailableException.java`, `simulation/internal/GrpcWorkerClient.java`, `simulation/internal/WorkerChannelConfig.java`; тесты `simulation/DecimalsTest.java`, `simulation/internal/GrpcWorkerClientTest.java` (сервер `grpc-inprocess`).
+**Files:** Create: `worker/package-info.java` (`@ApplicationModule`), `worker/WorkerClient.java`, `worker/Decimals.java`, `worker/MarketSpecs.java`, `worker/WorkerUnavailableException.java`, `worker/WorkerRejectedException.java`, `worker/DataUnavailableException.java`, `worker/internal/GrpcWorkerClient.java`, `worker/internal/WorkerChannelConfig.java`; тесты `worker/DecimalsTest.java`, `worker/internal/GrpcWorkerClientTest.java` (сервер `grpc-inprocess`).
+
+Отдельный модуль нужен, чтобы `workshop`, `sessions` и `simulation` звали воркер без циклов (`simulation` сам зависит от `workshop`).
 
 **Interfaces (Produces):**
 
@@ -1373,6 +1380,8 @@ public record RunCompleted(UUID runId, UUID ownerId, RunPurpose purpose, UUID ve
 
 Поведение `POST /api/runs`: версия видна пользователю (`StrategyVersions.find`, задача 39: своя или опубликованная и не удалённая; иначе 404); параметры — в пределах `ParamDecl` (иначе 422 `INVALID_PARAMS`, поле `params.<имя>`); период — `choosePeriod(manual = false)`; стресс: `PARAMETRIC` — два прогона: без стресса (возвращается) и со стрессом (`stressPairRunId`), значения по умолчанию X = 10, k = 3, N = 20, q = 0.2, `start_step = −1` — середина периода (обрабатывает задача 59); `PRESET` — период `FEB_2022` = 2021-12-01…2022-05-31, `MAR_2020` = 2020-01-01…2020-06-30, пара — прогон стратегии «купить и держать» на том же окне (текст генерируется: `rule "купить" when position == 0 then buy <floor(100 / N)> % cash because "купить и держать"`, N — число бумаг). Задание `RUN` → `runBacktest(with_cost_breakdown = purpose == USER)`; прогресс в БД не чаще раза в секунду и в SSE (`progress`); итог — `result`, `digest` (16 hex-символов), `run_status`, `level`, событие `RunCompleted`, SSE `completed`. `WorkerRejectedException` → `NonRetriableJobException`. `GET /replay` — `getBars` + сделки и заявки из `result`; баров больше 50 000 — 422 `TOO_LARGE`.
 
+Значения параметров в `RunRequest` и `Run` — `BigDecimal` (в proto переводятся в `double` при сборке `StrategySource`).
+
 **Тесты:** `submitQueuesJob`; `jobStoresResultAndPublishesEvent`; `paramsOutOfRange422`; `hiddenForeignVersion404`; `presetOverridesPeriod`; `parametricCreatesPair`; `invalidStrategyFailsWithoutRetry`; `progressEventsOverSse`.
 
 ### Задача 37: simulation: walk-forward
@@ -1411,6 +1420,8 @@ create table workshop.strategies (
 ```
 
 Поведение: список — свои неудалённые; черновик больше 64 КиБ — 422 `INVALID_PARAMS` (`source`); `POST /api/strategies/check` → `checkStrategy` → `CheckResult` (уровень, диагностики, параметры). Чужая стратегия — 404.
+
+`ParamDecl` в `CheckResult` — с `BigDecimal`.
 
 **Тесты:** `createAndList`; `draftTooLarge422`; `checkMapsDiagnosticsAndFixes`; `foreignStrategy404`.
 
@@ -1480,6 +1491,8 @@ public record VersionPublished(UUID versionId) {}
 
 Поведение: сессия своя и `FINISHED` (иначе 409 `CONFLICT`); `versionIds` пусто → эталон (`StrategyVersions.reference()`); больше 5 → 422; каждая версия видна пользователю. Задание `COMPARISON` → `analyzeDivergences(market, journal, last_step = cursor, алгоритмы с параметрами по умолчанию)` → JSON `Comparison`; `totalCost` — сумма цен ошибок при одном алгоритме, при нескольких — сумма `medianCost` консенсуса; `algorithmReports` — отчёты независимых портфелей.
 
+`GET /api/comparisons/{id}` отдаёт сохранённый JSON как `JsonNode` (в нём `costPercent` — число; полей `double` в классах нет).
+
 **Тесты:** `defaultUsesReference`; `moreThanFive422`; `unfinishedSession409`; `resultMappedWithConsensus`.
 
 ### Задача 44: analysis: рейтинг и каталог
@@ -1499,6 +1512,8 @@ create table analysis.ratings (
 ```
 
 Поведение: эпоха — на последний снапшот (проверка при старте и раз в сутки); окна: `SplittableRandom(lab.rating.seed ^ snapshotId.getMostSignificantBits())`, 30 окон по 120 торговых дней, D1, начало — равномерно среди дней, от которых 120 дней помещаются, бумага — равномерно из пула слепого режима, покрывающая окно; список хранится в `windows`. Новая эпоха — пересчёт всех `publishedVisible()`; `VersionPublished` — пересчёт версии. Задание `RATING` → 30 `RunService.submit(purpose = RATING, параметры по умолчанию)`; по `RunCompleted` всех окон — агрегат: любой `INVALID` → `INVALID` с причиной; иначе `score` = медиана `totalReturn` (при чётном числе — среднее двух средних), режим окна по `benchmark_return`: > `regime-threshold` — `UP`, < −порога — `DOWN`, иначе (и без бенчмарка) — `FLAT`; медианы Sharpe (без пустых) и макс. просадки; доля окон с `totalReturn > 0`. Каталог: последняя опубликованная видимая версия каждой стратегии + рейтинг текущей эпохи; сортировка `score` по убыванию (пустые — в конце) или `newest`; `regime` — сортировка по `byRegime[regime].score`.
+
+DTO `Rating` и `CatalogItem` — records в `analysis.metrics`; `GET /api/versions/{id}/rating` — рейтинг версии текущей эпохи (используется задачей 55).
 
 **Тесты:** `RatingAggregatorTest`: доходности 0.1, −0.2, 0.3, 0.05 → `score == 0.075`; режимы по порогу 0.05 (0.06 → UP, −0.06 → DOWN, 0.01 → FLAT); один `INVALID` → `INVALID`. `RatingSchedulerTest`: одинаковый seed и снапшот → одинаковые окна; другой seed → другие. `CatalogApiTest`: скрытые и удалённые не видны; сортировка `score`.
 
@@ -1624,7 +1639,7 @@ class ArenaStore {
 
 **Files:** `features/version/{version-page.ts,version-page.html,run-form.ts,walk-forward-form.ts,version.store.ts,run-form.spec.ts,version-page.spec.ts}`.
 
-Поведение: текст (только чтение), автор («Платформа» у эталона), параметры с диапазонами, предупреждения линтера (число — на карточке, ФТ-13), рейтинг по режимам; действия: «Опубликовать» (владелец), «Форк» (имя), «Скрыть» / «Вернуть в каталог» (владелец), «Запросить удаление» (причина). Форма прогона: параметры (проверка диапазона на клиенте), шаг, длительность в торговых днях, начало, стресс — нет / параметрический (X, k, N, q, шаг начала) / пресет («24.02.2022», «март 2020») → `POST /runs` → `/runs/:id`. Форма walk-forward: даты, до 5 тикеров, шаг → `POST /walk-forwards` → `/walk-forwards/:id`.
+Поведение: текст (только чтение), автор («Платформа» у эталона), параметры с диапазонами, предупреждения линтера (число — на карточке, ФТ-13), рейтинг по режимам (`GET /versions/:id/rating`, отдельно от карточки); действия: «Опубликовать» (владелец), «Форк» (имя), «Скрыть» / «Вернуть в каталог» (владелец), «Запросить удаление» (причина). Форма прогона: параметры (проверка диапазона на клиенте), шаг, длительность в торговых днях, начало, стресс — нет / параметрический (X, k, N, q, шаг начала) / пресет («24.02.2022», «март 2020») → `POST /runs` → `/runs/:id`. Форма walk-forward: даты, до 5 тикеров, шаг → `POST /walk-forwards` → `/walk-forwards/:id`.
 
 **Тесты:** `paramOutOfRangeBlocksSubmit`; `presetHidesParametricFields`; `ownerActionsOnlyForOwner`; `forkNavigatesToWorkshop`.
 
@@ -1687,7 +1702,7 @@ class ArenaStore {
 
 - **Репозиторий:** documentation. **Размер:** S. **Волна:** 9. **Зависит от:** все задачи, проверки которых перечислены в таблице INV ниже. **Связано:** `workflow.md` («Когда обновлять документы»).
 
-**Files:** Modify: `invariants.md` (колонка «Проверка» — по таблице «Инварианты → тесты»), `architecture.md` (RPC воркера и что он не хранит состояние; модули backend и их события `SessionEndReached`, `SessionFinished`, `RunCompleted`, `VersionPublished`; очередь заданий), `status.md` («Где мы»), `AGENTS.md` (строка про `plans/`).
+**Files:** Modify: `invariants.md` (колонка «Проверка» — по таблице «Инварианты → тесты»), `architecture.md` (RPC воркера и что он не хранит состояние; модули backend, включая `worker` и `config`, граф зависимостей из преамбулы трека backend вместо строки «Связи», события `SessionEndReached`, `SessionFinished`, `RunCompleted`, `VersionPublished`; очередь заданий), `status.md` («Где мы»), `AGENTS.md` (строка про `plans/`).
 
 - **Готово, когда:** каждая строка таблиц ниже указывает на существующий тест.
 
@@ -1766,7 +1781,6 @@ class ArenaStore {
 
 Решить до начала соответствующих задач; до решения — делать, как написано выше.
 1. Утечка уровня цены в слепом режиме: суммы в рублях реальные, поэтому `marketValue / lots` даёт реальную цену лота (задача 30). Варианты: показывать суммы в масштабе слепых цен или скрывать стоимость позиций до конца сессии — решает команда.
-2. Объём в `candles` и `trades` — штуки или лоты, есть ли IMOEX и где фикстура (DI). Если IMOEX нет — `benchmark_return` пустой, режим рейтинга всегда «боковик» (задачи 22, 44).
+2. IMOEX пока не импортируется: `benchmark_return` пустой, режим рейтинга — всегда «боковик» (задачи 22, 44). Нужна задача импорта IMOEX (ISS, `engine=stock&market=index`).
 3. Формулы метрик (безрисковая ставка 0, 252 дня, выборочное стандартное отклонение) и правило `afterHalt` (15 минут) — предложения плана; при изменении правятся задачи 7 и 22 и `decisions.md`.
 4. Несколько снапшотов с пересекающимися периодами (`status.md`, вопрос 3): план берёт последний готовый снапшот.
-5. ADR-0008 называет `absl::int128`, а `core/money` сделан на `__int128` (сборка только под GCC/Clang в Linux): поправить ADR под код.
