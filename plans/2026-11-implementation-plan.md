@@ -45,14 +45,15 @@
 | Файл | Кто меняет |
 |---|---|
 | `core/proto/*.proto`, `core/proto/CMakeLists.txt` | 1 |
-| `core/CMakeLists.txt`, `core/src/core/CMakeLists.txt`, `core/tests/CMakeLists.txt`, `core/src/worker/CMakeLists.txt` | 3 (после 34) |
+| `core/CMakeLists.txt`, `core/src/core/CMakeLists.txt`, `core/tests/CMakeLists.txt`, `core/src/worker/CMakeLists.txt` | 3 (после 34); исключение — 21 удаляет строки заглушки `deterministic_run` |
+| `core/src/core/market/CMakeLists.txt`, `core/tests/market/CMakeLists.txt`, `core/src/worker/clickhouse/CMakeLists.txt`, `core/tests/clickhouse/CMakeLists.txt` | 34 создаёт; 3 переводит их на glob и не подключает эти файлы второй раз (область `clickhouse` собирается своей библиотекой `simulation_clickhouse`) |
 | `core/vcpkg.json`, `core/Dockerfile*`, `core/.github/workflows/ci.yml` | 34 (уже в работе); после неё — по issue |
 | `core/src/worker/worker_service.{hpp,cpp}`, `core/src/worker/handlers.hpp` | 23 |
 | `backend/build.gradle.kts`, `backend/src/main/resources/application.yml`, `backend/.github/workflows/ci.yml` (до задачи 52), `backend/api/openapi.yaml` | 4 (yaml — 2) |
 | `backend/src/main/java/ru/ttsc/lab/api/SecurityConfig.java` | 12, затем 4 |
 | `backend/deploy/docker-compose.yml`, `backend/deploy/Caddyfile` | 52 (после DI) |
-| `frontend/package.json`, `package-lock.json`, `angular.json`, `src/app/app.routes.ts`, `src/app/app.config.ts`, `.github/workflows/ci.yml` | 6 (после 13 и 63) |
-| `documentation/invariants.md`, `architecture.md`, `status.md` | 54 |
+| `frontend/package.json`, `package-lock.json`, `angular.json`, `src/app/app.routes.ts`, `src/app/app.config.ts`, `src/app/app.ts`, `src/app/app.html` (меню), `.github/workflows/ci.yml` | 6 (после 13 и 63) |
+| `documentation/invariants.md`, `architecture.md`, `status.md` | 54; исключение — 64 (уже влита) вписала существующие проверки INV-4…6 |
 
 Нашёл, что в общий файл нужно добавить строку, — не правь его в своей задаче: добавь в issue задачи-владельца комментарий или заведи маленький issue.
 
@@ -290,7 +291,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 
 **Files:** Modify: `backend/api/openapi.yaml`. Test: `npx @redocly/cli lint api/openapi.yaml` в CI (добавляет задача 4) — здесь запуск вручную.
 
-Общее: OpenAPI 3.1; ошибки — `application/problem+json`, схема `Problem {type, title, status, detail, code?, field?}` (`code` — машинный код: `INVALID_PARAMS`, `NO_PERIOD`, `TOO_MANY_BARS`, `SESSION_PLAYING`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `DSL_ERRORS`, `TOO_LARGE`); деньги и цены — схема `Money` (строка, шаблон из «Глобальных ограничений»); id — `uuid`, кроме `orderId` (`int64`); все пути под `/api`, кроме служебных — с cookie-сессией и CSRF (`X-XSRF-TOKEN`).
+Общее: OpenAPI 3.1; ошибки — `application/problem+json`, схема `Problem {type, title, status, detail, code?, field?, errors?: Diagnostic[]}` (`errors` — диагностики DSL при `DSL_ERRORS`) (`code` — машинный код: `INVALID_PARAMS`, `NO_PERIOD`, `TOO_MANY_BARS`, `SESSION_PLAYING`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `DSL_ERRORS`, `TOO_LARGE`); деньги и цены — схема `Money` (строка, шаблон из «Глобальных ограничений»); id — `uuid`, кроме `orderId` и id пользователя (`int64`: в identity `users.id bigint`, `CurrentUser.id()` — `long`); все пути под `/api`, кроме служебных — с cookie-сессией и CSRF (`X-XSRF-TOKEN`).
 
 Схемы (поле `?` — необязательное):
 
@@ -299,7 +300,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `Timeframe` | enum `S1 S10 M1 M5 M10 M15 H1 D1` |
 | `SessionStart` | `type: RANDOM \| DATE`, `date?: date`, `tickers?: string[1..5]` |
 | `CreateSessionRequest` | `timeframe`, `durationDays: int` (одно из 20, 60, 120, 250), `instrumentCount?: int 1..5` (для RANDOM), `start: SessionStart` |
-| `InstrumentView` | `key: "A".."E"`, `label` («Бумага A»), `sector`, `ticker?`, `name?`, `lotSize?: int64`, `priceStep?: Money` — `ticker`, `name`, `lotSize`, `priceStep` только в неслепой сессии |
+| `InstrumentView` | `key: "A".."E"`, `label` («Бумага A»), `sector`, `ticker?`, `name?`, `lotSize?: int64`, `priceStep?: Money`, `lotValueAtStart: Money` (стоимость лота по open первой свечи; в слепой сессии — в % капитала) — `ticker`, `name`, `lotSize`, `priceStep` только в неслепой сессии |
 | `BarView` | `step: int64`, `instrumentKey`, `day: int` (торговый день 1…N), `time?: date-time` (только неслепая), `open, high, low, close: Money`, `volume: string` (лоты; в слепой — относительный объём, 4 знака), `afterHalt: bool` |
 | `PositionView` | `instrumentKey`, `lots: int64`, `avgPrice: Money`, `marketValue: Money` |
 | `PortfolioView` | `cash`, `equity: Money`, `positions: PositionView[]` |
@@ -308,26 +309,26 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `TradeView` | `orderId`, `instrumentKey`, `step`, `side`, `lots`, `price`, `value`, `commission`, `exchangeFee: Money`, `stopAndTakeSameBar: bool` |
 | `SessionView` | `id`, `moneyUnit: RUB\|PERCENT_OF_CAPITAL` (во всех денежных полях сессии и её событий; `PERCENT_OF_CAPITAL` — слепая сессия до раскрытия), `status: ACTIVE\|FINISHED`, `finishReason?: END\|BANKRUPT\|EARLY`, `playing: bool`, `speed: 1\|5\|10`, `cursor`, `totalSteps`, `blind: bool`, `timeframe`, `instruments[]`, `bars: BarView[]` (шаги 0…cursor), `portfolio`, `orders[]`, `trades[]`, `reveal?: Reveal` |
 | `Reveal` | `periodFrom: date`, `periodTo: date`, `instruments: [{key, ticker, name}]` — только у завершённой |
-| `SessionEvent` (SSE) | `oneOf`, дискриминатор `type`: `StepEvent {type: "step", cursor, bars[], portfolio, trades[], orders[] (изменённые)}`, `StateEvent {type: "state", status, playing, speed, cursor}`, `FinishedEvent {type: "finished", finishReason, reveal}` |
+| `SessionEvent` (SSE) | имя события SSE (`event:`) = `type`; `oneOf`, дискриминатор `type`: `StepEvent {type: "step", cursor, bars[], portfolio, trades[], orders[] (изменённые)}`, `StateEvent {type: "state", status, playing, speed, cursor}`, `FinishedEvent {type: "finished", finishReason, reveal}` |
 | `PlaceOrderRequest` | `clientOrderId: uuid`, `seenStep: int64`, `instrumentKey`, `side`, `type`, `lots: int64 ≥ 1`, `limitPrice?`, `stopPrice?`, `trailingPercent?`, `timeInForce`, `ocoWith?: OrderLeg` (`OrderLeg` = те же поля без `clientOrderId`, `seenStep`, `ocoWith`) |
 | `CancelOrderRequest` | `clientOrderId: uuid`, `seenStep` |
 | `ReplaceOrderRequest` | `clientOrderId: uuid`, `seenStep`, `order: OrderLeg`, `ocoWith?: OrderLeg` |
 | `OrderPlacement` | `accepted: bool`, `orders: OrderView[]`, `reason?`, `invalidField?` |
 | `Metrics` | поля proto `Metrics` в camelCase, `number`/`integer`, необязательные — nullable |
 | `CostTotals` | `commission, exchangeFee, spread, slippage: Money` |
-| `Report` | `subjectType: SESSION\|RUN`, `subjectId`, `level: OK\|WARNING\|ERROR`, `metrics`, `costs`, `finalEquity: Money`, `equity: [{step, equity: Money}]`, `findings: [{code, level, message, step}]`, `costBreakdown?: {steps: [{factor, netResult: Money, netReturn}], flags: [COSTS_OVER_HALF_PROFIT\|SIGN_CHANGE\|SHARPE_OVER_3]}`, `reveal?: Reveal`, `metadata: {snapshotId, snapshotFetchedAt, contentHash, timeframe, periodFrom, periodTo, instruments[], costs: {…: Money}, initialCash, strategyVersionId?, params?, stress?}` |
+| `Report` | `subjectType: SESSION\|RUN`, `subjectId`, `level: OK\|WARNING\|ERROR`, `metrics`, `costs`, `finalEquity: Money`, `equity: [{step, equity: Money}]`, `findings: [{code, level, message, step}]`, `trades: TradeView[]`, `orders: OrderView[]` (с `ruleName` и `because` — причина правила попадает в отчёт, ФТ-12), `costBreakdown?: {steps: [{factor, netResult: Money, netReturn}], flags: [COSTS_OVER_HALF_PROFIT\|SIGN_CHANGE\|SHARPE_OVER_3]}`, `reveal?: Reveal`, `metadata: {snapshotId, snapshotFetchedAt, contentHash, timeframe, periodFrom, periodTo, instruments[], costs: {…: Money}, initialCash, strategyVersionId?, params?, stress?, stressStartStep?}` (`stressStartStep` — шаг начала стресса после разрешения `start_step < 0`; для пресета — шаг первой даты окна) |
 | `ParamDecl`, `Diagnostic`, `TextEdit` | поля proto в camelCase; `level: error\|warning` |
 | `CheckResult` | `level: OK\|WARNING\|ERROR`, `diagnostics[]`, `params: ParamDecl[]` |
 | `StrategySummary` | `id`, `name`, `hidden`, `deleted`, `updatedAt`, `latestVersion?: {id, number, published}` |
-| `Strategy` | `StrategySummary` + `draftSource`, `forkedFrom?: {strategyId, versionId, versionNumber, sourceDeleted: bool}`, `versions: VersionSummary[]` |
+| `Strategy` | `StrategySummary` + `draftSource`, `forkedFrom?: {strategyId, versionId, versionNumber, author, sourceDeleted: bool}`, `versions: VersionSummary[]` |
 | `VersionSummary` | `id`, `number`, `published`, `checkLevel`, `lintWarnings: int`, `createdAt` |
 | `Version` | `VersionSummary` + `strategyId`, `strategyName`, `author` (имя или «Платформа»), `source`, `params`, `diagnostics` (рейтинга здесь нет: он в модуле analysis, отдельный эндпоинт) |
 | `Rating` | `epochId`, `status: PENDING\|DONE\|INVALID`, `score?`, `byRegime: {UP\|DOWN\|FLAT: {score?, windows}}`, `medianSharpe?`, `medianMaxDrawdown?`, `profitableShare?`, `invalidReason?` |
 | `CatalogItem` | `strategyId`, `name`, `author`, `latestVersion: {id, number}`, `rating?`, `lintWarnings` |
 | `RunRequest` | `versionId`, `params: [{name, value}]`, `timeframe`, `durationDays: int ≥ 1`, `instrumentCount?`, `start: SessionStart`, `stress?: StressRequest` |
 | `StressRequest` | `type: PARAMETRIC\|PRESET`, `preset?: FEB_2022\|MAR_2020`, `gapPercent?`, `volMultiplier?`, `volBars?`, `volumeShare?`, `startStep?` |
-| `Run` | `id`, `status: QUEUED\|RUNNING\|DONE\|FAILED`, `runStatus?: COMPLETED\|BANKRUPT_STOP\|INVALID`, `level?`, `versionId`, `params`, `blind`, `progress: {done, total}`, `stressPairRunId?`, `repeatOf?`, `repeatMatches?: bool`, `digest?: string`, `error?`, `createdAt` |
-| `RunEvent` (SSE) | `oneOf` по `type`: `ProgressEvent {type: "progress", done, total}`, `CompletedEvent {type: "completed", status, runStatus?}` |
+| `Run` | `id`, `stressStartStep?`, `status: QUEUED\|RUNNING\|DONE\|FAILED`, `runStatus?: COMPLETED\|BANKRUPT_STOP\|INVALID`, `level?`, `versionId`, `params`, `blind`, `progress: {done, total}`, `stressPairRunId?`, `repeatOf?`, `repeatMatches?: bool`, `digest?: string`, `error?`, `createdAt` |
+| `RunEvent` (SSE) | имя события SSE (`event:`) = `type`; `oneOf` по `type`: `ProgressEvent {type: "progress", done, total}`, `CompletedEvent {type: "completed", status, runStatus?}` |
 | `WalkForwardRequest` | `versionId`, `timeframe`, `from: date`, `to: date`, `tickers: string[1..5]` |
 | `WalkForward` | `id`, `status`, `progress`, `segments: [{index, fitFrom, fitTo, testFrom, testTo, chosenParams: [{name, value}], fitNetReturn, testRunId, testNetReturn}]`, `chainedReturn?` |
 | `ComparisonRequest` | `versionIds: uuid[0..5]` (пусто — эталонная стратегия) |
@@ -394,8 +395,8 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 
 **Files:** Modify: `core/CMakeLists.txt`, `core/src/core/CMakeLists.txt`, `core/tests/CMakeLists.txt`, `core/src/worker/CMakeLists.txt`, `core/AGENTS.md` («Структура»). Create: `core/src/core/<area>/CMakeLists.txt` и `core/tests/<area>/CMakeLists.txt` для каждой области, `core/tests/worker/CMakeLists.txt`, `core/tests/build/flags_test.cpp`, `core/testdata/README.md`. Modify: `core/src/core/money/CMakeLists.txt`, `core/tests/money/CMakeLists.txt` (на тот же glob).
 
-- `src/core/CMakeLists.txt`: `foreach(area money market portfolio exec engine dsl run report analysis)` → `add_subdirectory(${area})`; в каждой области `file(GLOB CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)` → `target_sources(simulation_core PRIVATE …)`; `tests/<area>/CMakeLists.txt` — то же для `core_tests`; `tests/worker/CMakeLists.txt` — для `worker_tests` (`tests/worker_ping_test.cpp` остаётся на месте и в списке `worker_tests`); пустые области — `CMakeLists.txt` и `.gitkeep`.
-- `src/worker/CMakeLists.txt`: `simulation_worker_lib` собирает `worker_service.cpp`, `file(GLOB CONFIGURE_DEPENDS handlers/*.cpp convert/*.cpp clickhouse/*.cpp)`.
+- `src/core/CMakeLists.txt`: `foreach(area money market portfolio exec engine dsl run report analysis)` → `add_subdirectory(${area})` (строки `add_subdirectory(money)` и `add_subdirectory(market)`, которые добавили 5 и 34, заменяются этим циклом, а не дублируются; `src/worker/clickhouse` и `tests/clickhouse` остаются своими подкаталогами из 34 и в glob воркера не входят); в каждой области `file(GLOB CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)` → `target_sources(simulation_core PRIVATE …)`; `tests/<area>/CMakeLists.txt` — то же для `core_tests`; `tests/worker/CMakeLists.txt` — для `worker_tests` (`tests/worker_ping_test.cpp` остаётся на месте и в списке `worker_tests`); пустые области — `CMakeLists.txt` и `.gitkeep`.
+- `src/worker/CMakeLists.txt`: `simulation_worker_lib` собирает `worker_service.cpp`, `file(GLOB CONFIGURE_DEPENDS handlers/*.cpp convert/*.cpp)`.
 - Флаги для `core_warnings`: GCC/Clang — `-ffp-contract=off`; проверка, что `-ffast-math` нигде не задан.
 - `tests/support/*.cpp` (общие фикстуры, задача 7) входят и в `core_tests`, и в `worker_tests`; `testdata/` — файлы для тестов (DSL, эталонный портфель).
 
@@ -438,7 +439,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 - **Связано:** ADR-0007, ADR-0009, НФТ-6, INV-1, INV-7.
 
 **Files:**
-- Modify: `frontend/package.json`, `package-lock.json` (`ng-openapi-gen`, `codemirror`, `@codemirror/state`, `@codemirror/view`, `@codemirror/language`, `@codemirror/lint`), `frontend/angular.json` (если нужно), `frontend/src/app/app.routes.ts`, `frontend/src/app/app.config.ts`, `frontend/.github/workflows/ci.yml`, `frontend/.gitignore` (`src/app/core/api/generated/`), `frontend/AGENTS.md`, `frontend/api/README.md`.
+- Modify: `frontend/package.json`, `package-lock.json` (`ng-openapi-gen`, `codemirror`, `@codemirror/state`, `@codemirror/view`, `@codemirror/language`, `@codemirror/lint`), `frontend/angular.json` (если нужно), `frontend/src/app/app.routes.ts`, `frontend/src/app/app.config.ts`, `frontend/src/app/app.ts`, `frontend/src/app/app.html` (меню: все пункты сразу — «Новая сессия», «История», «Мастерская», «Каталог», «Модерация» только для роли `MODERATOR` по `GET /me`), `frontend/.github/workflows/ci.yml`, `frontend/.gitignore` (`src/app/core/api/generated/`), `frontend/AGENTS.md`, `frontend/api/README.md`.
 - Create: `frontend/api/openapi.yaml` (копия), `frontend/scripts/sync-openapi.sh` (`--check` как в задаче 4, источник `../backend/api/openapi.yaml`), `frontend/ng-openapi-gen.json` (`input: api/openapi.yaml`, `output: src/app/core/api/generated`), npm-скрипты `generate:api` (вызывается в `prebuild`, `pretest`, `prestart`), `frontend/src/app/core/sse/event-stream.ts`, `frontend/src/app/shared/money.pipe.ts`, страницы-заглушки всех маршрутов ниже.
 
 Маршруты (каждый — `loadComponent` на `features/<f>/<f>-page.ts`; фичу заполняет указанная задача):
@@ -460,10 +461,10 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `''` → `history` | — | — |
 
 Интерфейсы:
-- `EventStream.connect<T>(url: string): { events: Signal<T | null>; status: Signal<'connecting' | 'open' | 'closed'>; close(): void }` — `EventSource` с `withCredentials`, разбор `JSON.parse(event.data)`; переподключение — встроенное в `EventSource`; при `status` → `open` после обрыва компонент перечитывает состояние по REST.
+- `EventStream.connect<T>(url: string, types: string[]): { events: Signal<T | null>; status: Signal<'connecting' | 'open' | 'closed'>; close(): void }` — `EventSource` с `withCredentials`; на каждый тип из `types` — `addEventListener(type, …)` (сервер шлёт именованные события `event: <type>`, `onmessage` их не получает), разбор `JSON.parse(event.data)`; переподключение — встроенное в `EventSource`; при `status` → `open` после обрыва компонент перечитывает состояние по REST.
 - `MoneyPipe` (`money`): строка `Money` → текст с пробелами в тысячах и запятой (`"1234567.5"` → `"1 234 567,50"`); арифметики над деньгами во frontend нет (INV-6).
 
-- [ ] Тесты (Vitest): `money.pipe.spec.ts` — `"1234567.5"` → `"1 234 567,50"`, `"-0.01"` → `"−0,01"`, `"100"` → `"100,00"`; `event-stream.spec.ts` — фиктивный `EventSource` отдаёт `{"type":"step"}` → `events()` равен объекту, `close()` закрывает источник; `app.routes.spec.ts` — у каждого пути таблицы есть маршрут.
+- [ ] Тесты (Vitest): `money.pipe.spec.ts` — `"1234567.5"` → `"1 234 567,50"`, `"-0.01"` → `"−0,01"`, `"100"` → `"100,00"`; `event-stream.spec.ts` — фиктивный `EventSource` отдаёт именованное событие `step` с `{"type":"step"}` → `events()` равен объекту; событие типа не из `types` игнорируется; `close()` закрывает источник; `app.spec.ts` — пункт «Модерация» виден только роли `MODERATOR`; `app.routes.spec.ts` — у каждого пути таблицы есть маршрут.
 - [ ] Реализовать; `npm run lint && npm test && npm run build` — PASS.
 - [ ] Коммит «Фундамент: клиент API из OpenAPI, маршруты всех экранов, SSE, деньги».
 
@@ -568,6 +569,7 @@ Fixture fixture1();
 ```cpp
 namespace core {
 enum class Side { Buy, Sell };
+struct EquityPoint { std::int64_t step; Decimal equity; };   // используется 15, 21, 22
 struct RoundTrip { int instrument; std::int64_t entryStep, exitStep, entryOrderId, lots; Decimal entryValue, exitValue, costs, netPnl; };
 class Portfolio {
  public:
@@ -710,7 +712,7 @@ class ExecutionEngine {
 - `amounts`: `value = (price · lots · lotSize).round(2, HALF_UP)`; `commission = (value · commissionRate).round(2, CEILING)`; `fee = (value · exchangeFeeRate).round(2, CEILING)`.
 - `spreadCost = (base · s/2 · lots · lotSize).round(2, HALF_UP)`; `slippageCost = (|price − base| · lots · lotSize).round(2, HALF_UP) − spreadCost`.
 - Рыночная заявка, поданная на шаге s, исполняется на первом шаге > s, где у её бумаги есть бар, по `base = open`. Бюджет ликвидности бумаги на шаге — `floor(p · V)` лотов на все заявки шага. Количество q = min(остаток, бюджет; для продажи — позиция). Покупка: если `value + commission + fee > cash`, q уменьшается до наибольшего, при котором хватает денег (двоичный поиск по q, цена пересчитывается для каждого q). q = 0 — заявка снимается с причиной ограничивающего фактора; остаток после частичного исполнения снимается с той же причиной (`LIQUIDITY_LIMIT`, `INSUFFICIENT_CASH`, `INSUFFICIENT_POSITION`); статус — `Cancelled` с `filledLots > 0` (частичное исполнение) либо `Filled`.
-- `validate` (при подаче, по close последнего бара бумаги не позже шага): `lots ≥ 1`; для типов с лимитом — `limitPrice > 0`; со стопом — `stopPrice > 0`; `trailingPercent ∈ (0; 50]`; `TakeProfit` и `TrailingStop` — только продажа; стоп на покупку выше последнего close, на продажу — ниже; тейк-профит выше последнего close. Иначе `InvalidParams` с полем (`lots`, `limitPrice`, `stopPrice`, `trailingPercent`, `side`). Покупка: `lots · lotSize · цена · (1 + commissionRate + exchangeFeeRate) > cash` → `InsufficientCash` (цена — `limitPrice` для лимитных, иначе последний close). Продажа: `lots > позиция` → `InsufficientPosition`.
+- `validate` (при подаче, по close последнего бара бумаги не позже шага): `lots ≥ 1`; для типов с лимитом — `limitPrice > 0`; со стопом — `stopPrice > 0`; `trailingPercent ∈ (0; 50]`; `TakeProfit` и `TrailingStop` — только продажа; стоп на покупку выше последнего close, на продажу — ниже; тейк-профит выше последнего close. Иначе `InvalidParams` с полем (`lots`, `limitPrice`, `stopPrice`, `trailingPercent`, `side`). Покупка: `lots · lotSize · цена · (1 + commissionRate + exchangeFeeRate) > cash` → `InsufficientCash` (цена — последний close для всех типов, `decisions.md`, «Заявки»). Продажа: `lots > позиция` → `InsufficientPosition`.
 - В этой задаче `processStep` исполняет только `Market`; прочие типы остаются `Active` (их добавляет задача 14).
 - `naive`: `processNaive` исполняет рыночные заявки шага s по close последнего бара бумаги не позже s, без издержек, спреда, проскальзывания и лимита ликвидности.
 
@@ -769,7 +771,6 @@ struct JournalEntry { std::int64_t seq; std::int64_t step; std::variant<PlaceCmd
 struct CommandResult { std::int64_t seq; bool accepted; Reason reason; std::string field; std::vector<std::int64_t> orderIds; };
 struct PortfolioSnapshot { Decimal cash, equity; std::vector<std::int64_t> lots; std::vector<Decimal> avgPrice, marketValue; };
 struct StepEvents { std::int64_t step; std::vector<StepBar> bars; std::vector<Fill> fills; std::vector<Order> changedOrders; PortfolioSnapshot portfolio; };
-struct EquityPoint { std::int64_t step; Decimal equity; };
 enum class SessionStatus { Running, FinishedEnd, Bankrupt };
 struct SessionSpec { std::vector<Instrument> instruments; CostConfig costs; Decimal initialCash; bool naive = false; };
 struct IntegrityViolation : std::logic_error { using std::logic_error::logic_error; };  // бар позже текущего шага, исполнение не позже шага подачи
@@ -781,6 +782,7 @@ class SessionEngine {                                   // копируемый:
   std::int64_t currentStep() const;  SessionStatus status() const;
   const Portfolio& portfolio() const;  const std::vector<Order>& orders() const;  const std::vector<Fill>& fills() const;
   const std::vector<EquityPoint>& equity() const;       // по шагу на каждый пройденный шаг, с 0
+  const std::vector<std::vector<Decimal>>& positionValues() const;  // [шаг][бумага] стоимость позиции на close шага (для HHI и крупнейшей позиции)
   StepEvents lastStepEvents() const;
   PortfolioSnapshot snapshot() const;
 };
@@ -791,7 +793,7 @@ ReplayResult replaySession(const SessionSpec&, std::shared_ptr<const Timeline>, 
 }
 ```
 
-Порядок (точно): курсор начинается с 0 (на шаге 0 заявок нет, стоимость = капитал). Для k = 0…: применить записи журнала с `step == k` по `seq` (проверка — `ExecutionEngine::validate`; отклонённая запись создаёт заявку в статусе `Rejected` с причиной); в наивном режиме — `processNaive(k)`; если k = upToStep — стоп; иначе `advance()`: `processStep(k+1)`, переоценка по последним close, снятие дневных заявок, если шаг последний в дне; `equity ≤ 0` → `Bankrupt`, `lastStep = k+1`; если k+1 = `totalSteps − 1` — после обработки все активные заявки снимаются (`SessionEnd`), статус `FinishedEnd`. `id` заявки = `seq · 2 + нога`. Замена: сначала проверяется новая заявка; не прошла — запись отклонена целиком (`accepted = false`), старая не тронута. Записи с невозрастающим `step` или `step > upToStep` — `std::invalid_argument`.
+Порядок (точно): курсор начинается с 0 (на шаге 0 заявок нет, стоимость = капитал). Для k = 0…: применить записи журнала с `step == k` по `seq` (проверка — `ExecutionEngine::validate`; отклонённая запись создаёт заявку в статусе `Rejected` с причиной); в наивном режиме — `processNaive(k)`; если k = upToStep — стоп; иначе `advance()`: `processStep(k+1)`, переоценка по последним close (дневные заявки снимает `processStep` задачи 14 — движок своего снятия не делает); `equity ≤ 0` → `Bankrupt`, `lastStep = k+1`; если k+1 = `totalSteps − 1` — после обработки все активные заявки снимаются (`SessionEnd`), статус `FinishedEnd`. `id` заявки = `seq · 2 + нога`. Замена: сначала проверяется новая заявка; не прошла — запись отклонена целиком (`accepted = false`), старая не тронута. Записи с убывающим `step` (равные допустимы — несколько заявок на шаге) или `step > upToStep` — `std::invalid_argument`.
 
 **Тесты** (фикстура `core::testing::fixture1()`):
 - `Replay.NoFutureBars` (INV-1): `upToStep = 3` → ни в `events`, ни где-либо в результате нет бара со `step > 3`.
@@ -913,7 +915,7 @@ Decimal toDecimalPrice(double value, const Decimal& priceStep);   // to_chars(fi
 
 ### Задача 21: Прогон стратегии и проверки во время исполнения
 
-- **Размер:** M. **Волна:** 5. **Зависит от:** 15, 20. **Связано:** ФТ-1, ФТ-8, ФТ-14, НФТ-2, INV-3, INV-4, `dsl.md` («Чтение будущего»).
+- **Размер:** M. **Волна:** 5. **Зависит от:** 15, 20, 22. **Связано:** ФТ-1, ФТ-8, ФТ-14, НФТ-2, INV-3, INV-4, `dsl.md` («Чтение будущего»).
 
 **Files:** Create: `src/core/include/core/run/backtest.hpp`, `src/core/run/{backtest,runtime_checks,digest}.cpp`, `tests/run/{backtest_test,determinism_test}.cpp`. Delete: `src/core/deterministic_run.cpp`, `src/core/include/core/deterministic_run.hpp`, `tests/determinism_test.cpp` и их строки в `src/core/CMakeLists.txt`, `tests/CMakeLists.txt` (заглушка каркаса заменяется настоящим тестом детерминизма).
 
@@ -921,11 +923,11 @@ Decimal toDecimalPrice(double value, const Decimal& priceStep);   // to_chars(fi
 
 ```cpp
 namespace core {
-struct Finding { std::string code; dsl::Level level; std::string message; std::int64_t step; };
 enum class RunStatus { Completed, BankruptStop, Invalid };
 struct RunOutput { RunStatus status; dsl::Level level; std::int64_t lastStep; std::vector<Fill> fills; std::vector<Order> orders;
                    std::vector<EquityPoint> equity; std::vector<RoundTrip> roundTrips; std::vector<Finding> findings;
-                   std::vector<JournalEntry> journal; std::uint64_t digest; Decimal finalEquity; std::int64_t rejections, partialFills; };
+                   std::vector<JournalEntry> journal; std::vector<std::vector<Decimal>> positionValuesByStep;
+                   std::uint64_t digest; Decimal finalEquity; std::int64_t rejections, partialFills; };   // Finding — из report/metrics.hpp (22)
 using Progress = std::function<void(std::int64_t done, std::int64_t total)>;
 RunOutput runBacktest(const SessionSpec&, std::shared_ptr<const Timeline>, const dsl::Program&,
                       const std::vector<dsl::ResolvedParam>&, const dsl::ParamValues&, dsl::Level staticLevel, const Progress&);
@@ -949,7 +951,7 @@ std::uint64_t digestOf(const RunOutput&);   // FNV-1a 64
 
 ### Задача 22: Метрики отчёта
 
-- **Размер:** M. **Волна:** 3. **Зависит от:** 8, DI-2. **Связано:** ФТ-17, НФТ-4, INV-6, `decisions.md` («Действующие решения v1»).
+- **Размер:** M. **Волна:** 4. **Зависит от:** 8, 11, DI-2. **Связано:** ФТ-17, НФТ-4, INV-6, `decisions.md` («Действующие решения v1»).
 
 **Files:** Create: `src/core/include/core/report/metrics.hpp`, `src/core/report/metrics.cpp`, `tests/report/metrics_test.cpp`.
 
@@ -967,6 +969,11 @@ struct Metrics { double totalReturn, grossReturn; std::optional<double> cagr; do
                  std::optional<double> benchmarkReturn; std::int32_t tradingDays; };
 struct CostTotals { Decimal commission, fee, spread, slippage; };
 struct Report { Metrics metrics; CostTotals costs; std::vector<EquityPoint> equity; Decimal finalEquity; };
+struct Finding { std::string code; dsl::Level level; std::string message; std::int64_t step; };   // находки ФТ-14 (21)
+enum class CostFactor { Naive, Delay, Fees, Spread, Slippage, Liquidity };                      // типы ФТ-24; считает их задача 27
+enum class CostFlag { CostsOverHalfProfit, SignChange, SharpeOver3 };
+struct CostBreakdownStep { CostFactor factor; Decimal netResult; double netReturn; };
+struct CostBreakdown { std::vector<CostBreakdownStep> steps; std::vector<CostFlag> flags; };
 Report computeReport(const MetricsInput&);
 }
 ```
@@ -1021,9 +1028,9 @@ grpc::Status handleAnalyzeDivergences(Context&, const pb::DivergenceRequest&, pb
 
 ### Задача 25: Воркер: ReplaySession и GetBars
 
-- **Размер:** M. **Волна:** 5. **Зависит от:** 15, 22, 23. **Связано:** ФТ-6, ФТ-11, ФТ-17, INV-1, INV-8.
+- **Размер:** M. **Волна:** 6. **Зависит от:** 15, 21, 22, 23. **Связано:** ФТ-6, ФТ-11, ФТ-17, INV-1, INV-8.
 
-**Files:** Modify: `src/worker/handlers/{replay_session,get_bars}.cpp`. Create: `src/worker/convert/{market,state,report}.{hpp,cpp}`, `tests/worker/{replay_session_test,get_bars_test}.cpp`.
+**Files:** Modify: `src/worker/handlers/{replay_session,get_bars}.cpp`. Create: `src/worker/convert/{market,state,report,run}.{hpp,cpp}`, `tests/worker/{replay_session_test,get_bars_test,convert_run_test}.cpp`.
 
 **Interfaces (Produces, используются задачами 28, 29, 59):**
 
@@ -1034,13 +1041,14 @@ std::shared_ptr<const core::Timeline> loadTimeline(Context&, const pb::MarketSpe
 std::optional<std::pair<core::Decimal, core::Decimal>> loadBenchmark(Context&, const pb::MarketSpec&);  // по D1; нет бенчмарка — nullopt
 core::JournalEntry fromProto(const pb::JournalEntry&, const core::SessionSpec&);
 void toProto(const core::StepBar&, const core::Timeline&, pb::Bar*);   // также Order, Fill, PortfolioSnapshot, Report, Finding
+void toProto(const core::RunOutput&, const core::Report&, const std::optional<core::CostBreakdown>&, const core::Timeline&, pb::RunResult*);   // convert/run.*: единственный перевод результата прогона; 28, 29, 59 только вызывают
 core::MetricsInput metricsInput(const core::SessionEngine&, const core::Timeline&, std::optional<std::pair<core::Decimal, core::Decimal>> benchmark);
 }
 ```
 
 Поведение: `ReplaySession` — `replaySession` до `up_to_step` (больше `total_steps − 1` — `INVALID_ARGUMENT`); события — для шагов (`events_from_step`; `last_step`]; `history` — все бары шагов 0…`last_step`; `report` — при `include_report`. `GetBars` — бары шагов [`from_step`; `to_step`]. Ключ бумаги в proto (`instrument_key`) ↔ индекс в `MarketSpec.instruments`.
 
-- **Тесты** (воркер в процессе, `Context` из `core::testing::fixture1()`): `ReplaySession.UpToStepNoFuture` (INV-1: `history` и `events` без шагов > 3); `ReplaySession.CommandResultsPerEntry`; `ReplaySession.ReportOnRequest` (`report.final_equity` = стоимость на `last_step`); `GetBars.Range`.
+- **Тесты** (воркер в процессе, `Context` из `core::testing::fixture1()`): `ReplaySession.UpToStepNoFuture` (INV-1: `history` и `events` без шагов > 3); `ReplaySession.CommandResultsPerEntry`; `ReplaySession.ReportOnRequest` (`report.final_equity` = стоимость на `last_step`); `GetBars.Range`; `ConvertRun.RoundTrip` (`RunOutput` с двумя сделками и `CostBreakdown` из 6 шагов → `pb::RunResult`: статус, `digest`, деньги `{units, nano}`, шаги цепочки по порядку).
 
 ### Задача 26: Стресс-сценарий
 
@@ -1064,10 +1072,7 @@ core::MetricsInput metricsInput(const core::SessionEngine&, const core::Timeline
 
 ```cpp
 namespace core {
-enum class CostFactor { Naive, Delay, Fees, Spread, Slippage, Liquidity };
-enum class CostFlag { CostsOverHalfProfit, SignChange, SharpeOver3 };
-struct CostBreakdownStep { CostFactor factor; Decimal netResult; double netReturn; };
-struct CostBreakdown { std::vector<CostBreakdownStep> steps; std::vector<CostFlag> flags; };
+// CostFactor, CostFlag, CostBreakdownStep, CostBreakdown — из report/metrics.hpp (22)
 CostBreakdown costBreakdown(const SessionSpec& honest, std::shared_ptr<const Timeline>, const dsl::Program&,
                             const std::vector<dsl::ResolvedParam>&, const dsl::ParamValues&, std::optional<double> honestSharpe);
 }
@@ -1079,7 +1084,7 @@ CostBreakdown costBreakdown(const SessionSpec& honest, std::shared_ptr<const Tim
 
 ### Задача 28: Walk-forward (ядро и RPC)
 
-- **Размер:** M. **Волна:** 6. **Зависит от:** 21, 22, 25. **Связано:** ФТ-22, ФТ-13, НФТ-2.
+- **Размер:** M. **Волна:** 7. **Зависит от:** 21, 22, 25. **Связано:** ФТ-22, ФТ-13, НФТ-2.
 
 **Files:** Create: `src/core/include/core/analysis/walk_forward.hpp`, `src/core/analysis/walk_forward.cpp`, `tests/analysis/walk_forward_test.cpp`, `tests/worker/walk_forward_rpc_test.cpp`. Modify: `src/worker/handlers/walk_forward.cpp`.
 
@@ -1103,7 +1108,7 @@ WalkForwardResult walkForward(const SessionSpec&, std::shared_ptr<const Timeline
 
 ### Задача 29: Разбор расхождений (ядро и RPC)
 
-- **Размер:** M. **Волна:** 6. **Зависит от:** 21, 25. **Связано:** ФТ-18, ФТ-19, ФТ-20, INV-3, INV-9, `decisions.md` («Разбор расхождений»).
+- **Размер:** M. **Волна:** 7. **Зависит от:** 21, 25. **Связано:** ФТ-18, ФТ-19, ФТ-20, INV-3, INV-9, `decisions.md` («Разбор расхождений»).
 
 **Files:** Create: `src/core/include/core/analysis/divergence.hpp`, `src/core/analysis/divergence.cpp`, `tests/analysis/divergence_test.cpp`, `tests/worker/divergence_rpc_test.cpp`. Modify: `src/worker/handlers/analyze_divergences.cpp`.
 
@@ -1143,15 +1148,14 @@ DivergenceResult analyzeDivergences(const SessionSpec&, std::shared_ptr<const Ti
 
 ### Задача 62: ClickHouse: торговый календарь и свечи из сделок в воркере
 
-- **Размер:** S. **Волна:** 3. **Зависит от:** 7, 23, 34. **Связано:** ФТ-3, ФТ-5.
+- **Размер:** S. **Волна:** 4. **Зависит от:** 7, 23, 34. **Связано:** ФТ-3, ФТ-5.
 
-**Files:** Create: `src/worker/clickhouse/clickhouse_calendar_source.{hpp,cpp}`, `src/worker/clickhouse/cached_bar_source.{hpp,cpp}`, `tests/worker/clickhouse_calendar_source_test.cpp`. Modify: `src/worker/main.cpp` (контекст воркера получает календарь и кэш), адаптер из задачи 34 — только если в нём нет пункта 2 ниже.
+**Files:** Create: `src/worker/clickhouse/clickhouse_calendar_source.{hpp,cpp}`, `tests/worker/clickhouse_calendar_source_test.cpp`. Modify: `src/worker/main.cpp` (контекст воркера получает календарь), адаптер из задачи 34 — только если в нём нет пункта 2 ниже.
 
 1. `ClickHouseCalendarSource : core::CalendarSource` — `SELECT toString(date), is_trading FROM trading_calendar WHERE snapshot_id = {sid:UUID} AND date BETWEEN {f:Date} AND {t:Date} ORDER BY date` (параметры — `param_*` HTTP-интерфейса, формат `TabSeparated`); нет снапшота в `snapshots_ready` → `SnapshotNotFound`.
 2. Свечи из сделок: если интервала шага нет в `snapshots.intervals_sec`, а в `data_kinds` есть `trades`, адаптер читает те же столбцы из `candles_from_trades(snapshot_id = …, interval_sec = …)`.
-3. `CachedBarSource(core::BarSource& inner, std::size_t capacity = 64)` — LRU по `BarRequest` и по `(snapshotId, secid)` для `security`; часы плеера дёргают воркер раз в 100–1000 мс, без кэша каждый шаг читал бы ClickHouse.
 
-- **Тесты** (транспорт адаптера подменён записанными ответами): календарь разбирается из TSV; нет снапшота → `SnapshotNotFound`; второй одинаковый `load` через `CachedBarSource` не обращается к внутреннему источнику; при отсутствии интервала запрос идёт к `candles_from_trades`. Проверка на настоящем ClickHouse — в задаче 61.
+- **Тесты** (транспорт адаптера подменён записанными ответами): календарь разбирается из TSV; нет снапшота → `SnapshotNotFound`; при отсутствии интервала запрос идёт к `candles_from_trades`. Проверка на настоящем ClickHouse — в задаче 61.
 
 ### Задача 59: Воркер: RunBacktest (со стрессом и цепочкой издержек)
 
@@ -1166,6 +1170,8 @@ DivergenceResult analyzeDivergences(const SessionSpec&, std::shared_ptr<const Ti
 ---
 
 ## Трек backend
+
+Id пользователя — `bigint` в таблицах и `long`/`Long` в Java (как в identity); `owner_id` всех таблиц — `bigint`. Исключения модуля переводятся в `Problem` с `code` своим `@RestControllerAdvice` в `<модуль>.web` (как в identity).
 
 Общее для задач трека: модуль `ru.ttsc.lab.<модуль>`; публичный API модуля — типы в корне пакета, реализация — `<модуль>.internal`, контроллеры и DTO (records) — `<модуль>.web`.
 
@@ -1254,7 +1260,7 @@ public interface MarketData {
 
 ```sql
 create table sessions.sessions (
-  id uuid primary key, owner_id uuid not null,
+  id uuid primary key, owner_id bigint not null,
   status text not null check (status in ('ACTIVE','FINISHED')),
   finish_reason text check (finish_reason in ('END','BANKRUPT','EARLY')),
   blind boolean not null, timeframe text not null, snapshot_id uuid not null,
@@ -1277,16 +1283,16 @@ create table sessions.journal (
 
 ```java
 public record InstrumentMeta(String key, String ticker, String name, String sector, long lotSize, BigDecimal priceStep, BigDecimal p0, long v0) {}
-public record SessionSnapshot(UUID id, UUID ownerId, String status, String finishReason, boolean blind, MarketSpec market,
+public record SessionSnapshot(UUID id, Long ownerId, String status, String finishReason, boolean blind, MarketSpec market,
                               List<JournalEntry> journal, long cursor, long totalSteps, List<InstrumentMeta> instruments,
                               LocalDate periodFrom, LocalDate periodTo, Instant createdAt, Instant finishedAt) {}
 public record SessionSummary(UUID id, String status, String finishReason, boolean blind, String timeframe, Instant createdAt, List<InstrumentMeta> instruments) {}
-public interface SessionQueries { Optional<SessionSnapshot> find(UUID id); List<SessionSummary> listByOwner(UUID ownerId); }
+public interface SessionQueries { Optional<SessionSnapshot> find(UUID id); List<SessionSummary> listByOwner(Long ownerId); }
 // internal, используют задачи 31, 32, 40:
 class SessionLocks { SessionRow lockForUpdate(UUID sessionId); }                       // SELECT … FOR UPDATE
 class SessionService { ReplaySessionResponse replay(SessionRow s, long upTo, long eventsFrom, boolean history, boolean report); }
 class SessionViewMapper { SessionView toView(SessionRow s, ReplaySessionResponse r); StepEvent toStepEvent(SessionRow s, StepEvents e); }
-class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal unscale(BigDecimal shown, BigDecimal p0, BigDecimal priceStep); String volume(long lots, long v0); String money(BigDecimal rub, BigDecimal initialCash); }
+class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal unscale(BigDecimal shown, BigDecimal p0, BigDecimal priceStep); String volume(long lots, long v0); String money(BigDecimal rub, BigDecimal initialCash); }   // lotValueAtStart = money(p0 · lotSize, initialCash)
 ```
 
 Создание: `choosePeriod(manual = true)` → `MarketSpec` (ключи A…E по порядку, издержки и капитал из `lab.*`, `benchmark_ticker = "IMOEX"`) → `replaySession(up_to 0)` даёт `total_steps`; `getBars(0, min(total − 1, 1000))` — первый бар каждой бумаги: `p0 = open`, `v0 = max(volume_lots, 1)`; нет бара — `NoPeriodException`. `GET` — `replaySession(up_to = cursor, include_history)` и маска. Чужая сессия — 404.
@@ -1295,7 +1301,7 @@ class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal uns
 
 **Тесты:**
 - `BlindScalerTest`: `price(271.35, 271.35) == "100"`; `price(284.9175, 271.35) == "105"`; `unscale(105, 271.35, 0.01) == 284.92`; `volume(150, 1000) == "0.15"`; `money(271540.00, 1000000) == "27.154"`; `money(135.77, 1000000) == "0.013577"`; `money(-0.01, 1000000) == "-0.000001"`.
-- `BlindContractTest` (INV-7): JSON ответа `GET /api/sessions/{id}` слепой сессии не содержит тикеров и названий бумаг сессии, строк вида `\d{4}-\d{2}-\d{2}` и полей `time`, `ticker`, `name`, `lotSize`; `bars[0].open == "100"`; `moneyUnit == "PERCENT_OF_CAPITAL"`, `portfolio.cash == "100"` при нетронутом капитале.
+- `BlindContractTest` (INV-7): JSON ответа `GET /api/sessions/{id}` слепой сессии не содержит тикеров и названий бумаг сессии, строк вида `\d{4}-\d{2}-\d{2}` и полей `time`, `ticker`, `name`, `lotSize`; `bars[0].open == "100"`; `moneyUnit == "PERCENT_OF_CAPITAL"`, `portfolio.cash == "100"` при нетронутом капитале; нет поля `lotSize` и сумм в рублях (в JSON нет строк `1000000` и `p0 · lotSize` в рублях), `lotValueAtStart` — в % капитала.
 - `SessionApiTest`: `createRandomSession` (201, `cursor == 0`, `blind == true`); `createDateSessionIsNotBlind` (тикеры видны); `noPeriod422`; `tooManyBars422`; `foreignSession404`; `getReplaysUpToCursor` (запрос к воркеру — `up_to_step == cursor`).
 - `JournalImmutabilityTest` (INV-8): `update`/`delete` строки журнала через JDBC → исключение.
 
@@ -1303,10 +1309,10 @@ class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal uns
 
 - **Размер:** M. **Волна:** 5. **Зависит от:** 30. **Связано:** ФТ-6, ФТ-11, НФТ-5, НФТ-6, ADR-0002, INV-1, INV-8, UC-3, UC-6.
 
-**Files:** Create: `sessions/SessionEndReached.java` (событие: `UUID sessionId, String status`), `sessions/internal/{SessionClock,SseHub,PlayerService,StartupPause}.java`, `sessions/web/{PlayerController,SessionEventsController}.java`; тесты `sessions/internal/{SessionClockTest,SseHubTest}.java`, `sessions/web/PlayerApiTest.java`.
+**Files:** Create: `sessions/SessionEndReached.java` (событие: `UUID sessionId, String status`), `sessions/internal/{SessionClock,SseHub,PlayerService,StartupPause}.java`, `sessions/web/{PlayerController,SessionEventsController,PlayerDtos}.java`; тесты `sessions/internal/{SessionClockTest,SseHubTest}.java`, `sessions/web/PlayerApiTest.java`.
 
 Поведение:
-- `play(speed)`: `playing = true`, `speed`; тик каждые `1000 / speed` мс (ScheduledExecutorService на один поток). Тик в транзакции: `lockForUpdate`; не `ACTIVE` или не `playing` — тик снимается; `replay(up_to = cursor + 1, events_from = cursor)`; `cursor = last_step`; событие `step` в `SseHub`; статус ответа `FINISHED_END` или `BANKRUPT` → `playing = false`, событие `SessionEndReached` (обрабатывает задача 40).
+- `play(speed)`: `playing = true`, `speed`; тик каждые `1000 / speed` мс (ScheduledExecutorService на один поток). Тик в транзакции: `lockForUpdate`; не `ACTIVE` или не `playing` — тик снимается; `replay(up_to = cursor + 1, events_from = cursor)`; `cursor = last_step`; событие `step` в `SseHub` (SSE с явным `event: step`; так же `event: state`, `event: finished`); статус ответа `FINISHED_END` или `BANKRUPT` → `playing = false`, событие `SessionEndReached` (обрабатывает задача 40).
 - `pause` — `playing = false`, событие `state`. `step` — один тик при паузе; при игре — 409 `SESSION_PLAYING`.
 - `SseHub`: `SseEmitter` без таймаута на подписчика; комментарий-heartbeat каждые 15 с; когда подписчиков сессии 0 дольше `lab.session.disconnect-pause-after` — пауза (ADR-0002).
 - `StartupPause`: при старте приложения `playing = false` у всех сессий (ревью, п. 5).
@@ -1315,23 +1321,23 @@ class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal uns
 **Тесты:**
 - `PlayerApiTest`: `playAdvancesCursor` (×10, Awaitility: `cursor ≥ 3` за 2 с); `stepWhilePlaying409`; `stepAdvancesByOne`; `pauseStops`.
 - `SseHubTest`: `stepEventBarsOnlyAtCursor` (INV-1: у всех баров события `step == cursor`); `pausesWhenNoSubscribers` (настройка 200 мс).
-- `SessionClockTest`: `restartOpensPaused`; `concurrentTicksAndOrdersSerialize` — 20 тиков и 20 заявок из двух потоков: `cursor` не убывает, `step` записей журнала не убывает по `seq`, взаимной блокировки нет.
+- `SessionClockTest`: `restartOpensPaused`.
 
 ### Задача 32: sessions: заявки
 
-- **Размер:** S. **Волна:** 5. **Зависит от:** 30. **Связано:** ФТ-7, ФТ-11, UC-4, UC-5, INV-2, INV-8, `decisions.md` («Заявки»).
+- **Размер:** S. **Волна:** 6. **Зависит от:** 30, 31. **Связано:** ФТ-7, ФТ-11, UC-4, UC-5, INV-2, INV-8, `decisions.md` («Заявки»).
 
-**Files:** Create: `sessions/internal/OrderService.java`, `sessions/web/OrderController.java`; тест `sessions/web/OrderApiTest.java`.
+**Files:** Create: `sessions/internal/{OrderService,OrderViewMapper}.java`, `sessions/web/{OrderController,OrderDtos}.java`; тесты `sessions/web/OrderApiTest.java`, `sessions/internal/OrderConcurrencyTest.java`.
 
 Поведение: проверка формы (`lots ≥ 1`, цены по типу) → 422 `INVALID_PARAMS` с `field`; `lockForUpdate`; повтор `clientOrderId` — тот же ответ без новой записи (ревью, п. 1); сессия не `ACTIVE` → `accepted = false`, `SESSION_NOT_ACTIVE`; в слепой сессии цены переводятся `BlindScaler.unscale`; в неслепой — округляются до шага HALF_UP; запись журнала: `seq = max + 1`, `step = cursor` (INV-2: не раньше последнего показанного), `seen_step` из запроса; `replay(up_to = cursor)` с новой записью → `command_results[seq]` → строка журнала с `accepted`, `reason` → ответ `OrderPlacement` (заявки из `order_ids`, с маской). Отмена и замена — записи `cancel` / `replace` тем же путём.
 
-**Тесты:** `journaledAtCursorNotSeenStep` (`seenStep = 2`, `cursor = 5` → `step = 5`); `duplicateClientOrderIdIsIdempotent`; `blindLimitPriceUnscaled` (показанная 105 при `p0 = 271.35` → воркер получает `284.92`); `rejectedOrderIsJournaled`; `cancelFilledOrderNotActive` (воркер вернул `ORDER_NOT_ACTIVE` → `accepted = false`); `replaceIsOneEntry`.
+**Тесты:** `journaledAtCursorNotSeenStep` (`seenStep = 2`, `cursor = 5` → `step = 5`); `duplicateClientOrderIdIsIdempotent`; `blindLimitPriceUnscaled` (показанная 105 при `p0 = 271.35` → воркер получает `284.92`); `rejectedOrderIsJournaled`; `cancelFilledOrderNotActive` (воркер вернул `ORDER_NOT_ACTIVE` → `accepted = false`); `replaceIsOneEntry`; `OrderConcurrencyTest.concurrentTicksAndOrdersSerialize` — 20 тиков (`SessionClock` задачи 31) и 20 заявок из двух потоков: `cursor` не убывает, `step` записей журнала не убывает по `seq`, взаимной блокировки нет (ревью, п. 2).
 
 ### Задача 40: sessions: завершение, раскрытие, данные для воспроизведения
 
 - **Размер:** S. **Волна:** 6. **Зависит от:** 31. **Связано:** ФТ-2, ФТ-10, ФТ-11, ФТ-17, UC-7, UC-8, UC-11, INV-7.
 
-**Files:** Create: `sessions/SessionFinished.java` (событие: `UUID sessionId, UUID ownerId, boolean blind, byte[] report, byte[] market`), `sessions/internal/FinishService.java`, `sessions/web/{FinishController,ReplayController}.java`; тест `sessions/web/FinishApiTest.java`.
+**Files:** Create: `sessions/SessionFinished.java` (событие: `UUID sessionId, Long ownerId, boolean blind, byte[] report, byte[] market`), `sessions/internal/FinishService.java`, `sessions/web/{FinishController,ReplayController}.java`; тест `sessions/web/FinishApiTest.java`.
 
 Поведение: `SessionEndReached` → `finish(END | BANKRUPT)`; `POST /finish` → `finish(EARLY)` (отрезок — до `cursor`). `finish`: статус `FINISHED`, причина, `finished_at`, `playing = false`; `replay(up_to = cursor, include_report)`; событие `SessionFinished` с байтами `Report` и `MarketSpec`; SSE `finished` с `Reveal`. После завершения `GET` отдаёт данные без маски: реальные цены, `lotSize`, рубли (`moneyUnit = RUB`) и `reveal`. `GET /replay` — только для завершённой (иначе 409): `getBars(0, cursor)` + заявки и сделки из `replay`, без маски.
 
@@ -1365,11 +1371,11 @@ public interface JobHandler { String type(); void handle(UUID jobId, JsonNode pa
 
 - **Размер:** M. **Волна:** 6. **Зависит от:** 17, 33, 35, 39. **Связано:** ФТ-1, ФТ-8, ФТ-14, ФТ-23, ФТ-24, НФТ-2, НФТ-3, НФТ-5, UC-14, UC-15, UC-17, INV-4, INV-5.
 
-**Files:** Create: `src/main/resources/db/migration/V8__simulation_runs.sql`, `simulation/{RunService,RunQueries,RunSummary,RunCompleted,RunPurpose}.java`, `simulation/internal/{RunJobHandler,RunRepository,RunSseHub,StressPresets}.java`, `simulation/web/{RunController,RunDtos}.java`; тест `simulation/web/RunApiTest.java`.
+**Files:** Create: `src/main/resources/db/migration/V8__simulation_runs.sql`, `simulation/{RunService,RunQueries,RunSummary,RunCompleted,RunPurpose}.java`, `simulation/internal/{RunJobHandler,RunRepository,RunSseHub,StressPresets}.java` (`RunRepository` сразу содержит `insertCompleted(RunRow)` для готовых прогонов walk-forward и `setRepeatMatches(UUID runId, boolean matches)` — ими пользуются 37 и 60, сами они репозиторий не меняют), `simulation/web/{RunController,RunDtos}.java`; тест `simulation/web/RunApiTest.java`.
 
 ```sql
 create table simulation.runs (
-  id uuid primary key, owner_id uuid, version_id uuid not null, params jsonb not null,
+  id uuid primary key, owner_id bigint, version_id uuid not null, params jsonb not null,
   purpose text not null check (purpose in ('USER','RATING','WALK_FORWARD')), blind boolean not null,
   market bytea not null,                 -- MarketSpec (proto)
   stress jsonb, stress_pair_run_id uuid, repeat_of uuid, repeat_matches boolean,
@@ -1383,18 +1389,18 @@ create index runs_owner_created on simulation.runs(owner_id, created_at desc);
 
 ```java
 public enum RunPurpose { USER, RATING, WALK_FORWARD }
-public record RunSpec(UUID ownerId, UUID versionId, Map<String, Double> params, RunPurpose purpose, MarketSpec market, boolean blind,
+public record RunSpec(Long ownerId, UUID versionId, Map<String, BigDecimal> params, RunPurpose purpose, MarketSpec market, boolean blind,
                       StressScenario stress, boolean withCostBreakdown, UUID repeatOf) {}
 public interface RunService { UUID submit(RunSpec spec); }
-public record RunSummary(UUID id, UUID ownerId, UUID versionId, RunPurpose purpose, boolean blind, String status, String runStatus,
+public record RunSummary(UUID id, Long ownerId, UUID versionId, RunPurpose purpose, boolean blind, String status, String runStatus,
                          String level, String digest, UUID repeatOf, Boolean repeatMatches, Instant createdAt, Instant finishedAt) {}
-public interface RunQueries { Optional<RunSummary> find(UUID id); List<RunSummary> listByOwner(UUID ownerId); Optional<byte[]> result(UUID id); Optional<MarketSpec> market(UUID id); }
-public record RunCompleted(UUID runId, UUID ownerId, RunPurpose purpose, UUID versionId, boolean blind, byte[] result, byte[] market) {}
+public interface RunQueries { Optional<RunSummary> find(UUID id); List<RunSummary> listByOwner(Long ownerId); Optional<byte[]> result(UUID id); Optional<MarketSpec> market(UUID id); }
+public record RunCompleted(UUID runId, Long ownerId, RunPurpose purpose, UUID versionId, boolean blind, byte[] result, byte[] market) {}
 ```
 
 Поведение `POST /api/runs`: версия видна пользователю (`StrategyVersions.find`, задача 39: своя или опубликованная и не удалённая; иначе 404); параметры — в пределах `ParamDecl` (иначе 422 `INVALID_PARAMS`, поле `params.<имя>`); период — `choosePeriod(manual = false)`; стресс: `PARAMETRIC` — два прогона: без стресса (возвращается) и со стрессом (`stressPairRunId`), значения по умолчанию X = 10, k = 3, N = 20, q = 0.2, `start_step = −1` — середина периода (обрабатывает задача 59); `PRESET` — период `FEB_2022` = 2021-12-01…2022-05-31, `MAR_2020` = 2020-01-01…2020-06-30, пара — прогон стратегии «купить и держать» на том же окне (текст генерируется: `rule "купить" when position == 0 then buy <floor(100 / N)> % cash because "купить и держать"`, N — число бумаг). Задание `RUN` → `runBacktest(with_cost_breakdown = purpose == USER)`; прогресс в БД не чаще раза в секунду и в SSE (`progress`); итог — `result`, `digest` (16 hex-символов), `run_status`, `level`, событие `RunCompleted`, SSE `completed`. `WorkerRejectedException` → `NonRetriableJobException`. `GET /replay` — `getBars` + сделки и заявки из `result`; баров больше 50 000 — 422 `TOO_LARGE`.
 
-Значения параметров в `RunRequest` и `Run` — `BigDecimal` (в proto переводятся в `double` при сборке `StrategySource`).
+Значения параметров в `RunRequest`, `Run` и `RunSpec` — `BigDecimal`; в `double` они переводятся только при сборке `StrategySource` (граница proto). SSE шлёт явные `event: progress` и `event: completed`.
 
 **Тесты:** `submitQueuesJob`; `jobStoresResultAndPublishesEvent`; `paramsOutOfRange422`; `hiddenForeignVersion404`; `presetOverridesPeriod`; `parametricCreatesPair`; `invalidStrategyFailsWithoutRetry`; `progressEventsOverSse`.
 
@@ -1402,9 +1408,9 @@ public record RunCompleted(UUID runId, UUID ownerId, RunPurpose purpose, UUID ve
 
 - **Размер:** S. **Волна:** 7. **Зависит от:** 36. **Связано:** ФТ-22, UC-16.
 
-**Files:** Create: `src/main/resources/db/migration/V9__simulation_walk_forward.sql` (`simulation.walk_forwards(id uuid pk, owner_id uuid not null, version_id uuid not null, request jsonb not null, status text not null, progress_done bigint, progress_total bigint, result jsonb, error text, created_at, finished_at)`), `simulation/internal/WalkForwardJobHandler.java`, `simulation/web/WalkForwardController.java`; тест `simulation/web/WalkForwardApiTest.java`.
+**Files:** Create: `src/main/resources/db/migration/V9__simulation_walk_forward.sql` (`simulation.walk_forwards(id uuid pk, owner_id bigint not null, version_id uuid not null, request jsonb not null, status text not null, progress_done bigint, progress_total bigint, result jsonb, error text, created_at, finished_at)`), `simulation/internal/WalkForwardJobHandler.java`, `simulation/web/WalkForwardController.java`; тест `simulation/web/WalkForwardApiTest.java`.
 
-Поведение: `POST` — тикеры и даты из запроса (неслепой), `fit/test/shift/max-grid` из `lab.walk-forward`; задание `WALK_FORWARD` → `runWalkForward`; проверочный прогон каждого отрезка сохраняется строкой `runs` (`purpose = WALK_FORWARD`, `result`) и публикуется `RunCompleted` (отчёт строит задача 42); `testRunId` — её id.
+Поведение: `POST` — тикеры и даты из запроса (неслепой), `fit/test/shift/max-grid` из `lab.walk-forward`; задание `WALK_FORWARD` → `runWalkForward`; проверочный прогон каждого отрезка сохраняется строкой `runs` через `RunRepository.insertCompleted` (`purpose = WALK_FORWARD`, `result`) и публикуется `RunCompleted` (отчёт строит задача 42); `testRunId` — её id.
 
 **Тесты:** `segmentsMapped`; `gridTooLargeFails` (воркер → `INVALID_ARGUMENT` → `FAILED` с текстом); `testRunsHaveReports` (событие `RunCompleted` на каждый отрезок).
 
@@ -1414,7 +1420,7 @@ public record RunCompleted(UUID runId, UUID ownerId, RunPurpose purpose, UUID ve
 
 **Files:** Create: `simulation/internal/RepeatService.java`, `simulation/web/RepeatController.java`; тест `simulation/web/RepeatApiTest.java`.
 
-Поведение: `POST /api/runs/{id}/repeat` — новый прогон с теми же `market`, версией, параметрами, стрессом, `repeat_of = id`; по `RunCompleted` повтора — `repeat_matches = (digest повтора == digest исходного)`; несовпадение — лог уровня ERROR «нарушение INV-4: прогон <id>».
+Поведение: `POST /api/runs/{id}/repeat` — новый прогон с теми же `market`, версией, параметрами, стрессом, `repeat_of = id`; по `RunCompleted` повтора — `RunRepository.setRepeatMatches(id, digest повтора == digest исходного)`; несовпадение — лог уровня ERROR «нарушение INV-4: прогон <id>».
 
 **Тесты:** `sameDigestMatches`; `differentDigestFlagged`; `repeatOfForeignRun404`.
 
@@ -1426,7 +1432,7 @@ public record RunCompleted(UUID runId, UUID ownerId, RunPurpose purpose, UUID ve
 
 ```sql
 create table workshop.strategies (
-  id uuid primary key, owner_id uuid,                -- null — платформа
+  id uuid primary key, owner_id bigint,                -- null — платформа
   name text not null check (length(name) between 1 and 100),
   draft_source text not null default '', draft_updated_at timestamptz not null default now(),
   hidden boolean not null default false, deleted boolean not null default false,
@@ -1448,7 +1454,7 @@ create table workshop.strategies (
 ```sql
 create table workshop.versions (
   id uuid primary key, strategy_id uuid not null references workshop.strategies(id), number int not null,
-  source text not null, dsl_version int not null default 1, params jsonb not null, diagnostics jsonb not null,
+  source text not null, params jsonb not null, diagnostics jsonb not null,
   check_level text not null check (check_level in ('OK','WARNING','ERROR')),
   published boolean not null default false, published_at timestamptz, created_at timestamptz not null default now(),
   unique (strategy_id, number));
@@ -1461,7 +1467,7 @@ create table workshop.versions (
 
 ```java
 public record ParamDeclView(String name, BigDecimal defaultValue, BigDecimal min, BigDecimal max, BigDecimal step, boolean integer) {}
-public record VersionInfo(UUID id, UUID strategyId, String strategyName, UUID ownerId, int number, String source,
+public record VersionInfo(UUID id, UUID strategyId, String strategyName, Long ownerId, int number, String source,
                           List<ParamDeclView> params, boolean published, boolean hidden, boolean deleted, String checkLevel, int lintWarnings) {}
 public interface StrategyVersions {
   Optional<VersionInfo> find(UUID versionId);
@@ -1481,7 +1487,7 @@ public record VersionPublished(UUID versionId) {}
 
 - **Размер:** S. **Волна:** 6. **Зависит от:** 39. **Связано:** ФТ-15, UC-23, `decisions.md` («Мастерская: скрытие и удаление», «Учётные записи»).
 
-**Files:** Create: `src/main/resources/db/migration/V6__workshop_deletion_requests.sql` (`workshop.deletion_requests(id uuid pk, strategy_id uuid not null references workshop.strategies(id), requester_id uuid not null, reason text not null check (length(reason) between 1 and 2000), status text not null check (status in ('PENDING','APPROVED','REJECTED')), moderator_id uuid, comment text, created_at timestamptz not null default now(), decided_at timestamptz)`), `workshop/internal/ModerationService.java`, `workshop/web/ModerationController.java`; тест `workshop/web/ModerationApiTest.java`.
+**Files:** Create: `src/main/resources/db/migration/V6__workshop_deletion_requests.sql` (`workshop.deletion_requests(id uuid pk, strategy_id uuid not null references workshop.strategies(id), requester_id bigint not null, reason text not null check (length(reason) between 1 and 2000), status text not null check (status in ('PENDING','APPROVED','REJECTED')), moderator_id bigint, comment text, created_at timestamptz not null default now(), decided_at timestamptz)`), `workshop/internal/ModerationService.java`, `workshop/web/ModerationController.java`; тест `workshop/web/ModerationApiTest.java`.
 
 Поведение: запрос подаёт любой вошедший; список и решения — `@PreAuthorize("hasRole('MODERATOR')")`; `approve` → `deleted = true` у стратегии (строки версий не трогаются, INV-5).
 
@@ -1491,7 +1497,7 @@ public record VersionPublished(UUID versionId) {}
 
 - **Размер:** M. **Волна:** 7. **Зависит от:** 36, 40. **Связано:** ФТ-2, ФТ-17, ФТ-21, ФТ-24, НФТ-3, UC-8, UC-10, UC-15.
 
-**Files:** Create: `src/main/resources/db/migration/V10__analysis_reports.sql` (`analysis.reports(id uuid pk, subject_type text not null check (subject_type in ('SESSION','RUN')), subject_id uuid not null, owner_id uuid, level text not null, report jsonb not null, created_at timestamptz not null default now(), unique (subject_type, subject_id))`), `analysis/internal/{ReportListener,ReportJsonMapper,ReportRepository,HistoryService}.java`, `analysis/web/{ReportController,HistoryController}.java`; тесты `analysis/internal/ReportJsonMapperTest.java`, `analysis/web/{ReportApiTest,HistoryApiTest}.java`.
+**Files:** Create: `src/main/resources/db/migration/V10__analysis_reports.sql` (`analysis.reports(id uuid pk, subject_type text not null check (subject_type in ('SESSION','RUN')), subject_id uuid not null, owner_id bigint, level text not null, report jsonb not null, created_at timestamptz not null default now(), unique (subject_type, subject_id))`), `analysis/internal/{ReportListener,ReportJsonMapper,ReportRepository,HistoryService}.java`, `analysis/web/{ReportController,HistoryController}.java`; тесты `analysis/internal/ReportJsonMapperTest.java`, `analysis/web/{ReportApiTest,HistoryApiTest}.java`.
 
 Поведение: `SessionFinished` и `RunCompleted` → `ReportJsonMapper` (proto `Report` + `CostBreakdown` + метаданные: снапшот через `MarketData.snapshot`, период и бумаги из `MarketSpec`, версия и параметры прогона, `reveal` для сессий) → JSON строго по схеме `Report` (деньги — строки `Decimals.toBigDecimal(...).toPlainString()` без лишних нулей, метрики — числа, пустые `optional` — `null`). Поле `double` в классах не заводится: метрики пишутся прямо в `ObjectNode`. История: `SessionQueries.listByOwner` + `RunQueries.listByOwner` (только `USER`) + `netReturn` из `report->'metrics'->>'totalReturn'` (`numeric`), новые первыми; заголовок — слепая незавершённая сессия «Слепая сессия от ДД.ММ.ГГГГ», завершённая — тикеры через запятую, прогон — «<стратегия> v<номер>».
 
@@ -1501,7 +1507,7 @@ public record VersionPublished(UUID versionId) {}
 
 - **Размер:** S. **Волна:** 8. **Зависит от:** 39, 42. **Связано:** ФТ-18, ФТ-19, ФТ-20, UC-9, `decisions.md` («Разбор расхождений»).
 
-**Files:** Create: `src/main/resources/db/migration/V11__analysis_comparisons.sql` (`analysis.comparisons(id uuid pk, session_id uuid not null, owner_id uuid not null, version_ids jsonb not null, status text not null, result jsonb, error text, created_at timestamptz not null default now(), finished_at timestamptz)`), `analysis/internal/{ComparisonService,ComparisonJobHandler,ComparisonJsonMapper}.java`, `analysis/web/ComparisonController.java`; тест `analysis/web/ComparisonApiTest.java`.
+**Files:** Create: `src/main/resources/db/migration/V11__analysis_comparisons.sql` (`analysis.comparisons(id uuid pk, session_id uuid not null, owner_id bigint not null, version_ids jsonb not null, status text not null, result jsonb, error text, created_at timestamptz not null default now(), finished_at timestamptz)`), `analysis/internal/{ComparisonService,ComparisonJobHandler,ComparisonJsonMapper}.java`, `analysis/web/ComparisonController.java`; тест `analysis/web/ComparisonApiTest.java`.
 
 Поведение: сессия своя и `FINISHED` (иначе 409 `CONFLICT`); `versionIds` пусто → эталон (`StrategyVersions.reference()`); больше 5 → 422; каждая версия видна пользователю. Задание `COMPARISON` → `analyzeDivergences(market, journal, last_step = cursor, алгоритмы с параметрами по умолчанию)` → JSON `Comparison`; `totalCost` — сумма цен ошибок при одном алгоритме, при нескольких — сумма `medianCost` консенсуса; `algorithmReports` — отчёты независимых портфелей.
 
@@ -1527,9 +1533,9 @@ create table analysis.ratings (
 
 Поведение: эпоха — на последний снапшот (проверка при старте и раз в сутки); окна: `SplittableRandom(lab.rating.seed ^ snapshotId.getMostSignificantBits())`, 30 окон по 120 торговых дней, D1, начало — равномерно среди дней, от которых 120 дней помещаются, бумага — равномерно из пула слепого режима, покрывающая окно; список хранится в `windows`. Новая эпоха — пересчёт всех `publishedVisible()`; `VersionPublished` — пересчёт версии. Задание `RATING` → 30 `RunService.submit(purpose = RATING, параметры по умолчанию)`; по `RunCompleted` всех окон — агрегат: любой `INVALID` → `INVALID` с причиной; иначе `score` = медиана `totalReturn` (при чётном числе — среднее двух средних), режим окна по `benchmark_return`: > `regime-threshold` — `UP`, < −порога — `DOWN`, иначе (и без бенчмарка) — `FLAT`; медианы Sharpe (без пустых) и макс. просадки; доля окон с `totalReturn > 0`. Каталог: последняя опубликованная видимая версия каждой стратегии + рейтинг текущей эпохи; сортировка `score` по убыванию (пустые — в конце) или `newest`; `regime` — сортировка по `byRegime[regime].score`.
 
-DTO `Rating` и `CatalogItem` — records в `analysis.metrics`; `GET /api/versions/{id}/rating` — рейтинг версии текущей эпохи (используется задачей 55).
+DTO `Rating` и `CatalogItem` — records в `analysis.metrics`; `GET /api/versions/{id}/rating` — рейтинг версии текущей эпохи (используется задачей 55); у скрытой версии — 404 всем, кроме владельца (`decisions.md`, «Мастерская: скрытие и удаление»).
 
-**Тесты:** `RatingAggregatorTest`: доходности 0.1, −0.2, 0.3, 0.05 → `score == 0.075`; режимы по порогу 0.05 (0.06 → UP, −0.06 → DOWN, 0.01 → FLAT); один `INVALID` → `INVALID`. `RatingSchedulerTest`: одинаковый seed и снапшот → одинаковые окна; другой seed → другие. `CatalogApiTest`: скрытые и удалённые не видны; сортировка `score`.
+**Тесты:** `RatingAggregatorTest`: доходности 0.1, −0.2, 0.3, 0.05 → `score == 0.075`; режимы по порогу 0.05 (0.06 → UP, −0.06 → DOWN, 0.01 → FLAT); один `INVALID` → `INVALID`. `RatingSchedulerTest`: одинаковый seed и снапшот → одинаковые окна; другой seed → другие. `CatalogApiTest`: скрытые и удалённые не видны; сортировка `score`; `hiddenVersionRating404ForOthers`.
 
 ---
 
@@ -1579,9 +1585,9 @@ class ArenaStore {
 }
 ```
 
-Поведение: при открытии `load` (UC-6) и подписка `EventStream` на `/api/sessions/:id/events`; после переподключения — `load`; бары `afterHalt` — маркер «торги приостановлены»; заголовок бумаги — `label · sector` (в неслепой — и тикер); денежные значения выводятся по `moneyUnit`: рубли пайпом `money` или «% капитала» (6 знаков, как пришли); переключение бумаг — вкладками; кнопки ×1/×5/×10, пауза, шаг (шаг недоступен во время игры). Хранилище держит только то, что прислал сервер (INV-1): никаких запросов баров впереди курсора.
+Поведение: при открытии `load` (UC-6) и подписка `EventStream` на `/api/sessions/:id/events`; после переподключения — `load`; бары `afterHalt` — маркер «торги приостановлены»; заголовок бумаги — `label · sector` (в неслепой — и тикер); денежные значения выводятся по `moneyUnit`: рубли пайпом `money` или «% капитала» (6 знаков, как пришли); переключение бумаг — вкладками; кнопки ×1/×5/×10, пауза, шаг (шаг недоступен во время игры); «Завершить» — подтверждение «Завершить сессию досрочно? Отчёт будет по пройденному отрезку» → `POST /sessions/:id/finish`. SSE `state` обновляет `playing`, `speed`, `cursor`; SSE `finished` (и ответ `finish`) — показать раскрытие (`reveal`: период, тикеры) и перейти на `/sessions/:id/report`. Подписка — `EventStream.connect(url, ['step', 'state', 'finished'])`. Хранилище держит только то, что прислал сервер (INV-1): никаких запросов баров впереди курсора.
 
-**Тесты:** `applyStepAppendsBarsAndPortfolio`; `gapInCursorTriggersReload`; `reconnectReloadsState`; `blindHeaderShowsLabelAndSectorOnly` (в DOM нет тикера); `blindMoneyShownAsPercent`; `stepDisabledWhilePlaying`; `chartLabelsDayNInBlind`.
+**Тесты:** `applyStepAppendsBarsAndPortfolio`; `gapInCursorTriggersReload`; `reconnectReloadsState`; `blindHeaderShowsLabelAndSectorOnly` (в DOM нет тикера); `blindMoneyShownAsPercent`; `stepDisabledWhilePlaying`; `finishAsksConfirmation`; `finishedEventShowsRevealAndNavigatesToReport`; `chartLabelsDayNInBlind`.
 
 ### Задача 47: Арена: заявки, портфель, сделки
 
@@ -1673,7 +1679,7 @@ class ArenaStore {
 
 **Files:** `features/run/{run-page.ts,run-page.html,run.store.ts,walk-forward-page.ts,walk-forward.store.ts,run.store.spec.ts,walk-forward.store.spec.ts}`.
 
-Поведение: `/runs/:id` — прогресс по SSE (`progress`, `completed`; после `completed` — `GET /runs/:id/report`), уровень проверки и находки; `ReportView`; при стресс-паре — два отчёта рядом и метка начала события на кривой; «Повторить» и бейдж «совпадает» / «не совпадает» по `repeatMatches`. `/walk-forwards/:id` — опрос раз в 2 с, таблица отрезков (окна, выбранные параметры, доходность подбора и проверки, ссылка на отчёт), итог по цепочке.
+Поведение: `/runs/:id` — прогресс по SSE (`EventStream.connect(url, ['progress', 'completed'])`; после `completed` — `GET /runs/:id/report`), уровень проверки и находки; `ReportView`; при стресс-паре — два отчёта рядом и метка начала события на кривой; «Повторить» и бейдж «совпадает» / «не совпадает» по `repeatMatches`. `/walk-forwards/:id` — опрос раз в 2 с, таблица отрезков (окна, выбранные параметры, доходность подбора и проверки, ссылка на отчёт), итог по цепочке.
 
 **Тесты:** `progressFromSse`; `loadsReportOnCompleted`; `stressPairSideBySide`; `walkForwardPollingStops`.
 
@@ -1693,7 +1699,7 @@ class ArenaStore {
 
 ### Задача 52: Окружение: воркер в Docker Compose
 
-- **Репозиторий:** backend. **Размер:** S. **Волна:** 6. **Зависит от:** 25, 34, 62, DI. **Связано:** INV-10, НФТ-6, ADR-0005, ADR-0007.
+- **Репозиторий:** backend. **Размер:** S. **Волна:** 7. **Зависит от:** 25, 34, 62, DI. **Связано:** INV-10, НФТ-6, ADR-0005, ADR-0007.
 
 **Files:** Modify: `backend/deploy/docker-compose.yml` (сервис `worker`: `build: ../../core`, переменные `CLICKHOUSE_URL=http://clickhouse:8123`, `CLICKHOUSE_DB`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, без `ports`; `backend` — `LAB_WORKER_HOST=worker`, `LAB_CLICKHOUSE_URL`; сервис `caddy` — образ фронтенда `build: ../../frontend` с `Caddyfile` из `deploy/`), `backend/deploy/.env.example`, `backend/.github/workflows/ci.yml` (шаг проверки портов), `backend/AGENTS.md` («Команды»). Create: `backend/deploy/tests/compose-ports.sh`.
 
@@ -1704,7 +1710,7 @@ class ArenaStore {
 
 ### Задача 61: Сквозной сценарий (ходячий скелет) и интеграция с ClickHouse
 
-- **Репозиторий:** backend. **Размер:** S. **Волна:** 7. **Зависит от:** 31, 32, 46, 52. **Связано:** ФТ-1, ФТ-6, ФТ-7, ФТ-11, INV-1, INV-2, INV-8.
+- **Репозиторий:** backend. **Размер:** S. **Волна:** 8. **Зависит от:** 31, 32, 40, 42, 46, 52. **Связано:** ФТ-1, ФТ-6, ФТ-7, ФТ-11, INV-1, INV-2, INV-8.
 
 **Files:** Create: `backend/deploy/tests/smoke.sh`, `backend/.github/workflows/e2e.yml` (`workflow_dispatch` и ночной запуск; клонирует `core` и `frontend` рядом).
 
@@ -1755,15 +1761,15 @@ class ArenaStore {
 | 0 | 5*, 34* | 2, 12*, DI*, DI-2 | 13*, 63* | 64, 65 |
 | 1 | 1, 3 | — | 6 | — |
 | 2 | 7, 8, 9, 10 | 4 | 45, 46, 48, 49, 50, 51, 53, 55, 56, 58 | — |
-| 3 | 11, 18, 19, 22, 23, 26 | 17, 33, 35 | 47, 57 | — |
-| 4 | 14, 15, 16, 20, 24, 62 | 30, 38 | — | — |
-| 5 | 21, 25 | 31, 32, 39 | — | — |
-| 6 | 27, 28, 29 | 36, 40, 41 | — | 52 |
-| 7 | 59 | 37, 42, 44, 60 | — | 61 |
-| 8 | — | 43 | — | — |
+| 3 | 11, 18, 19, 23, 26 | 17, 33, 35 | 47, 57 | — |
+| 4 | 14, 15, 16, 20, 22, 24, 62 | 30, 38 | — | — |
+| 5 | 21 | 31, 39 | — | — |
+| 6 | 25, 27 | 32, 36, 40, 41 | — | — |
+| 7 | 28, 29, 59 | 37, 42, 44, 60 | — | 52 |
+| 8 | — | 43 | — | 61 |
 | 9 | — | — | — | 54 |
 
-\* — уже в работе. Ходячий скелет: 1 → 3 → 7, 8 → 11 → 15 → 23 → 25 (+ 62) → 33, 17 → 30 → 31, 32 → 46, 47 → 52 → 61; это первый приоритет внутри каждой волны.
+\* — уже в работе. Ходячий скелет: 1 → 3 → 7, 8 → 11 → 15 → 21 → 25 (+ 62) → 33, 17 → 30 → 31, 32 → 46, 47 → 52 → 61; это первый приоритет внутри каждой волны.
 
 Межрепозиторные зависимости — только через контракты: backend зависит от `core` через задачу 1 (proto), frontend от backend — через задачу 2 (OpenAPI); реализация воркера нужна backend только в сквозном тесте 61. Тесты backend и frontend работают с подменой воркера и API.
 
