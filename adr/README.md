@@ -18,3 +18,4 @@ Architecture Decision Records — архитектурные решения с �
 | 0010 | [Графики на lightweight-charts](0010-lightweight-charts.md) | агент | предложен |
 | 0011 | [TS-клиент API генерирует ng-openapi-gen](0011-ng-openapi-gen.md) | агент | предложен |
 | 0012 | [Редактор стратегий на CodeMirror 6](0012-codemirror-dsl-editor.md) | агент | предложен |
+| 0013 | [Чтение ClickHouse из C++ по HTTP-интерфейсу](0013-clickhouse-http-reader.md) | агент | предложен |
