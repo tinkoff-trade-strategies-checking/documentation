@@ -1,6 +1,6 @@
 # Архитектура
 
-Источник — схема технологического стека (30.10.2026) и слайд «Архитектура» в презентации требований. Стартовое окружение — Docker Compose. Причины выбора — ADR-0002 (REST + SSE), ADR-0003 (модульный монолит), ADR-0004 (ClickHouse), ADR-0005 (Caddy), ADR-0007 (контракты и инфраструктура), ADR-0009 (Signals); что именно хранить в ClickHouse — ещё обсуждается (ADR-0001).
+Источник — схема технологического стека (30.10.2026) и слайд «Архитектура» в презентации требований. Стартовое окружение — Docker Compose. Причины выбора — ADR-0002 (REST + SSE), ADR-0003 (модульный монолит), ADR-0004 (ClickHouse), ADR-0005 (Caddy), ADR-0007 (контракты и инфраструктура), ADR-0009 (Signals), ADR-0010–0012 (библиотеки фронтенда), ADR-0013 (чтение ClickHouse из C++); что именно хранить в ClickHouse — ещё обсуждается (ADR-0001).
 
 ```
 Браузер: Angular SPA (Taiga UI)
@@ -36,27 +36,54 @@ C++: Simulation Worker (gRPC server) → Simulation Core      ── read-only �
 
 ## Java-модули (Spring Modulith)
 
-- **api** — сквозная часть HTTP API: Spring Security, обработка ошибок, служебные эндпоинты (`/api/health`). Spring MVC, REST, SSE, Validation. Контроллеры бизнес-функций живут не здесь, а в пакете `<модуль>.web` своего модуля (`ru.ttsc.lab.sessions.web` и т. п.).
-- **identity** — пользователи, роли, права.
-- **sessions** — сессии и команды пользователя: запуск, пауза, шаг, заявка; фиксирует версию стратегии.
-- **workshop** — стратегии и неизменяемые версии, DSL, параметры, публикация.
-- **simulation** — оркестрация и gRPC-клиент, фоновые задания, версия данных и период, команды в C++, сохранение событий и снимков. Свечи не проходят через Java в цикле.
-- **marketdata** — каталог инструментов, периодов и версий, проверка наличия истории для сессии. Доступ к ClickHouse только на чтение; данные не скачивает и тики в C++ не передаёт.
-- **analysis** — сравнение и отчёты, обработка события `RunCompleted`, чтение сохранённых результатов.
+- **api** — сквозная часть HTTP API: Spring Security, обработка ошибок, служебные эндпоинты (`/api/health`). Контроллеры бизнес-функций живут в пакете `<модуль>.web` своего модуля; исключения модуля переводятся в `Problem` (`application/problem+json`) его `@RestControllerAdvice`.
+- **config** — настройки `lab.*` (`LabProperties`); ни от кого не зависит.
+- **identity** — пользователи, роли (`USER`, `MODERATOR`), вход по cookie-сессии с CSRF; публично — `CurrentUser`, `UserDirectory` (имена пользователей для других модулей). Id пользователя — `bigint`.
+- **worker** — клиент gRPC к Simulation Worker: `WorkerClient`, перевод денег `Decimal{units, nano}` ↔ `BigDecimal` (`Decimals`), сборка `MarketSpec` (`MarketSpecs`), дайджест прогона (`Digests`). Отдельный модуль, чтобы `workshop`, `sessions` и `simulation` звали воркер без циклов.
+- **marketdata** — каталог снапшотов, бумаг, торговых дней, выбор периода сессии. ClickHouse — только `SELECT` через собственный пул; данные не скачивает, бары в C++ не передаёт. Индексы (IMOEX) в каталог бумаг не попадают.
+- **workshop** — стратегии, черновики, неизменяемые версии (INV-5), публикация, форки, скрытие, запросы на удаление и модерация; проверка DSL — через воркер.
+- **sessions** — ручные сессии: создание, журнал «номер свечи + заявка» (INV-8), слепая маска (INV-7), часы плеера и SSE, заявки, завершение и раскрытие, данные для воспроизведения.
+- **simulation** — очередь фоновых заданий (`JobQueue`, `JobHandler`), прогоны алгоритмов (`RunService`), стресс-пары, walk-forward, повтор прогона со сверкой дайджеста (UC-18).
+- **analysis** — отчёты и история, разбор расхождений, рейтинг и каталог; слушает события других модулей.
 
-Связи: `sessions → workshop` (получить версию), `sessions → simulation` (запустить или продолжить), `simulation → marketdata` (зафиксировать готовую версию данных), `simulation → analysis` (`RunCompleted`).
+Зависимости модулей (без циклов, проверяет `ApplicationModules.verify()` в CI): `config`, `identity` — ни от кого; `worker` → `config`; `marketdata` → `config`; `workshop` → `worker`, `identity`, `config`; `sessions` → `worker`, `marketdata`, `identity`, `config`; `simulation` → `worker`, `workshop`, `marketdata`, `identity`, `config`; `analysis` → все остальные.
+
+События Spring Modulith (объявлены в модуле-источнике, слушает `analysis`, кроме первого):
+- `SessionEndReached` (`sessions`) — часы дошли до конца периода или банкротства; публикуется в транзакции, записавшей статус; слушает `sessions` (завершение).
+- `SessionFinished` (`sessions`) — один раз на сессию, в транзакции завершения (досрочно — `FinishService`, конец периода и банкротство — по `SessionEndReached`); несёт `Report` и `MarketSpec` в байтах. Слушатель — после коммита (`@ApplicationModuleListener`).
+- `RunCompleted` (`simulation`) — прогон досчитан (в том числе отрезки walk-forward и окна рейтинга); несёт `RunResult` и `MarketSpec`. Отчёты по прогонам с `purpose = RATING` не сохраняются: в них даты закрытых окон.
+- `VersionPublished` (`workshop`) — версия опубликована; запускает расчёт её рейтинга.
+
+Очередь фоновых заданий — таблица `simulation.jobs` в PostgreSQL: захват `FOR UPDATE SKIP LOCKED` с арендой (`lab.jobs.lease`, продление каждые `lease / 2`), `lab.jobs.concurrency` потоков, повтор после сбоя с задержкой 5 с × номер попытки до `lab.jobs.max-attempts`, задание с истёкшей арендой после перезапуска возвращается в очередь. Типы заданий: `RUN`, `WALK_FORWARD`, `COMPARISON`, `RATING`.
 
 Границы модулей:
-- вызовы между модулями — через публичные Java-интерфейсы, уведомления — через внутренние события Spring Modulith;
-- одна PostgreSQL, у каждого модуля своя схема (`identity`, `sessions`, `workshop`, `simulation`, `marketdata`, `analysis`; создаются в `backend` миграцией `V1__baseline.sql`); модуль создаёт таблицы только в своей схеме, чужие схемы, entity и репозитории напрямую не использует;
-- границы проверяются в CI: `ApplicationModules.verify()`.
+- вызовы между модулями — через публичные Java-интерфейсы, уведомления — через события Spring Modulith;
+- одна PostgreSQL, у каждого модуля своя схема (`identity`, `sessions`, `workshop`, `simulation`, `marketdata`, `analysis`; создаются в `backend` миграцией `V1__baseline.sql`, номера миграций модулей V2…V12 закреплены планом); модуль создаёт таблицы только в своей схеме, чужие схемы, entity и репозитории напрямую не использует;
+- полей `double`/`float` в `ru.ttsc.lab` нет, кроме пакета метрик `analysis.metrics` (`MoneyTypesArchTest`, INV-6).
 
 ## C++
 
-- **Simulation Core** — независимая библиотека: рыночный цикл выполняется локально; время, индикаторы, исполнение DSL, заявки, риск-проверки, портфель. CLI для replay и тестов.
+- **Simulation Core** — независимая библиотека без gRPC: деньги (`Decimal`), рыночные данные и шкала времени сессии, исполнение заявок, портфель, движок сессии (проигрывание журнала), DSL (разбор, проверки, линтер, интерпретатор), прогон стратегии с проверками во время исполнения, метрики отчёта, стресс, цепочка «наивный → честный», walk-forward, разбор расхождений.
 - Деньги, портфель, издержки и метрики отчёта считает только `core`; Java их хранит и отдаёт (ADR-0008, предложен).
-- Разбор DSL, линтер и проверка на чтение будущего — одна реализация в `core`; `workshop` получает диагностики от Simulation Worker (`dsl.md`, предложено). Разбор расхождений (ФТ-19, ФТ-20) тоже считает `core`: стратегия исполняется в состоянии портфеля человека.
-- **Simulation Worker** — gRPC-сервер (Protocol Buffers) и адаптер чтения ClickHouse. Получает от Java задание (версия, период, параметры), отдаёт события и результат. К MOEX и PostgreSQL не обращается.
+- **Simulation Worker** — gRPC-сервер (`core/proto/simulation.proto`, пакет `pac.simulation.v1`). Состояния сессий не хранит: каждый вызов `ReplaySession` заново читает бары и проигрывает журнал до курсора (INV-8). К MOEX и PostgreSQL не обращается.
+
+| RPC | Что делает |
+|---|---|
+| `Ping` | версия ядра |
+| `CheckStrategy` | разбор DSL, проверки и линтер → диагностики и параметры |
+| `ReplaySession` | журнал сессии до курсора → события шагов, история баров, портфель, заявки, результаты команд, отчёт |
+| `GetBars` | бары шагов из диапазона (воспроизведение) |
+| `RunBacktest` | прогон стратегии (поток прогресса), стресс, отчёт, цепочка издержек ФТ-24 |
+| `RunWalkForward` | walk-forward (поток прогресса) |
+| `AnalyzeDivergences` | разбор расхождений человек ↔ алгоритмы, консенсус, независимые портфели |
+
+Ошибки RPC: нет данных снапшота, бумаги или баров — `FAILED_PRECONDITION`; прочие ошибки данных — `NOT_FOUND`; ошибка DSL или параметров — `INVALID_ARGUMENT`; ClickHouse недоступен — `UNAVAILABLE`; испорченные данные и нарушение целостности движка — `INTERNAL`.
+
+ClickHouse воркер читает по HTTP-интерфейсу через libcurl (ADR-0013): `readonly=1`, только `snapshots_ready`, свечи — из `candles` или `candles_from_trades`, календарь — `trading_calendar`.
+
+## Окружение (Docker Compose)
+
+`backend/deploy/docker-compose.yml`: `caddy` (образ frontend из `../../frontend`, раздаёт SPA и проксирует `/api`), `backend`, `worker` (из `../../core`), `postgres`, `clickhouse`. Порты наружу публикует только `caddy` (INV-10, проверка `deploy/tests/compose-ports.test.sh`). Для рейтинга обязательна переменная `RATING_SEED`.
 
 ## Хранилища
 
