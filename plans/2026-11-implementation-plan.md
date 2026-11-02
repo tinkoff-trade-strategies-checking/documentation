@@ -299,14 +299,14 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `Timeframe` | enum `S1 S10 M1 M5 M10 M15 H1 D1` |
 | `SessionStart` | `type: RANDOM \| DATE`, `date?: date`, `tickers?: string[1..5]` |
 | `CreateSessionRequest` | `timeframe`, `durationDays: int` (одно из 20, 60, 120, 250), `instrumentCount?: int 1..5` (для RANDOM), `start: SessionStart` |
-| `InstrumentView` | `key: "A".."E"`, `label` («Бумага A»), `sector`, `ticker?`, `name?`, `lotSize: int64`, `priceStep?: Money` — `ticker`, `name`, `priceStep` только в неслепой сессии |
+| `InstrumentView` | `key: "A".."E"`, `label` («Бумага A»), `sector`, `ticker?`, `name?`, `lotSize?: int64`, `priceStep?: Money` — `ticker`, `name`, `lotSize`, `priceStep` только в неслепой сессии |
 | `BarView` | `step: int64`, `instrumentKey`, `day: int` (торговый день 1…N), `time?: date-time` (только неслепая), `open, high, low, close: Money`, `volume: string` (лоты; в слепой — относительный объём, 4 знака), `afterHalt: bool` |
 | `PositionView` | `instrumentKey`, `lots: int64`, `avgPrice: Money`, `marketValue: Money` |
 | `PortfolioView` | `cash`, `equity: Money`, `positions: PositionView[]` |
 | `OrderView` | `id: int64`, `instrumentKey`, `side: BUY\|SELL`, `type: MARKET\|LIMIT\|STOP\|STOP_LIMIT\|TAKE_PROFIT\|TRAILING_STOP`, `lots`, `filledLots`, `limitPrice?`, `stopPrice?`, `trailingPercent?`, `trailingStopLevel?`, `ocoSiblingId?`, `timeInForce: DAY\|GTC`, `status: ACTIVE\|PARTIALLY_FILLED\|FILLED\|CANCELLED\|EXPIRED\|REJECTED`, `reason?: RejectReason`, `invalidField?`, `placedStep`, `ruleName?`, `because?` |
 | `RejectReason` | enum = `Reason` из proto без `REASON_UNSPECIFIED` |
 | `TradeView` | `orderId`, `instrumentKey`, `step`, `side`, `lots`, `price`, `value`, `commission`, `exchangeFee: Money`, `stopAndTakeSameBar: bool` |
-| `SessionView` | `id`, `status: ACTIVE\|FINISHED`, `finishReason?: END\|BANKRUPT\|EARLY`, `playing: bool`, `speed: 1\|5\|10`, `cursor`, `totalSteps`, `blind: bool`, `timeframe`, `instruments[]`, `bars: BarView[]` (шаги 0…cursor), `portfolio`, `orders[]`, `trades[]`, `reveal?: Reveal` |
+| `SessionView` | `id`, `moneyUnit: RUB\|PERCENT_OF_CAPITAL` (во всех денежных полях сессии и её событий; `PERCENT_OF_CAPITAL` — слепая сессия до раскрытия), `status: ACTIVE\|FINISHED`, `finishReason?: END\|BANKRUPT\|EARLY`, `playing: bool`, `speed: 1\|5\|10`, `cursor`, `totalSteps`, `blind: bool`, `timeframe`, `instruments[]`, `bars: BarView[]` (шаги 0…cursor), `portfolio`, `orders[]`, `trades[]`, `reveal?: Reveal` |
 | `Reveal` | `periodFrom: date`, `periodTo: date`, `instruments: [{key, ticker, name}]` — только у завершённой |
 | `SessionEvent` (SSE) | `oneOf`, дискриминатор `type`: `StepEvent {type: "step", cursor, bars[], portfolio, trades[], orders[] (изменённые)}`, `StateEvent {type: "state", status, playing, speed, cursor}`, `FinishedEvent {type: "finished", finishReason, reveal}` |
 | `PlaceOrderRequest` | `clientOrderId: uuid`, `seenStep: int64`, `instrumentKey`, `side`, `type`, `lots: int64 ≥ 1`, `limitPrice?`, `stopPrice?`, `trailingPercent?`, `timeInForce`, `ocoWith?: OrderLeg` (`OrderLeg` = те же поля без `clientOrderId`, `seenStep`, `ocoWith`) |
@@ -474,6 +474,20 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 - **Репозиторий:** backend (`deploy/clickhouse/`, `tools/marketdata-import/`). **Волна:** 0. **Связано:** ФТ-3, ФТ-4, ФТ-5, INV-5.
 - Схема (коммит `f5a4c6c` в ветке `3-marketdata-import`): `snapshots` / `snapshots_ready`, `securities` (`secid`, `name`, `sector`, `lot_size UInt32`, `price_step Decimal(18,6)`), `trading_calendar` (`date`, `is_trading`, `session_open`, `session_close`), `candles` (`interval_sec`, `ts_open`, OHLC `Decimal(18,6)`, `volume UInt64`, `available_at`), `trades`, параметризованный view `candles_from_trades(snapshot_id, interval_sec)`.
 - Задачи 17, 34 и 62 читают ровно эти таблицы. По README импортёра: количество и объём — в штуках (ядро делит на `lot_size` вниз); фикстура — снапшот `ec6b3c97-7036-56cf-ba4d-ec4e919e682d` (`marketdata-import fixture`): SBER, GAZP, LKOH — минутные свечи 28–29.10.2026, дневные 19–30.10.2026, синтетические сделки `SYNTH`; IMOEX в фикстуре нет. Решение плана: сессия читает один `snapshot_id`; IMOEX, когда появится, — свечи `secid = 'IMOEX'`.
+
+### Задача DI-2: Импорт IMOEX
+
+- **Репозиторий:** backend (`tools/marketdata-import/`). **Размер:** S. **Волна:** 0. **Зависит от:** DI. **Связано:** ФТ-16, ФТ-17 (бенчмарк IMOEX), `decisions.md` («Рейтинг»).
+
+**Files:** Modify: модули загрузки ISS и CLI импортёра в `backend/tools/marketdata-import/src/marketdata_import/`, `backend/tools/marketdata-import/README.md`. Create: тест в `backend/tools/marketdata-import/tests/` (по образцу `test_iss.py`).
+
+- Свечи индекса: ISS `engine=stock&market=index`, `secid=IMOEX` (доска индексов), те же интервалы, что у загружаемого снапшота; в том же снапшоте, что и акции.
+- Строка `securities`: `secid = 'IMOEX'`, `sector = ''` (не попадает в пул слепого режима), `lot_size = 1`, `price_step = 0.01`.
+- Объём индекса — 0 (у индекса нет объёма в штуках); `value` — как отдаёт ISS.
+- Флаг CLI `--with-index IMOEX` (по умолчанию включён для `fetch`); фикстура не меняется (у неё закреплён хэш).
+
+- **Тесты:** разбор ответа ISS по индексу из записанного JSON; в снапшоте есть строка `securities` IMOEX с `sector = ''` и свечи `secid = 'IMOEX'`.
+- **Готово, когда:** CI импортёра зелёный; задачи 22 и 44 получают непустой `benchmark_return` на снапшотах с IMOEX.
 
 ---
 
@@ -935,7 +949,7 @@ std::uint64_t digestOf(const RunOutput&);   // FNV-1a 64
 
 ### Задача 22: Метрики отчёта
 
-- **Размер:** M. **Волна:** 3. **Зависит от:** 8. **Связано:** ФТ-17, НФТ-4, INV-6, `decisions.md` («Действующие решения v1»).
+- **Размер:** M. **Волна:** 3. **Зависит от:** 8, DI-2. **Связано:** ФТ-17, НФТ-4, INV-6, `decisions.md` («Действующие решения v1»).
 
 **Files:** Create: `src/core/include/core/report/metrics.hpp`, `src/core/report/metrics.cpp`, `tests/report/metrics_test.cpp`.
 
@@ -1272,16 +1286,16 @@ public interface SessionQueries { Optional<SessionSnapshot> find(UUID id); List<
 class SessionLocks { SessionRow lockForUpdate(UUID sessionId); }                       // SELECT … FOR UPDATE
 class SessionService { ReplaySessionResponse replay(SessionRow s, long upTo, long eventsFrom, boolean history, boolean report); }
 class SessionViewMapper { SessionView toView(SessionRow s, ReplaySessionResponse r); StepEvent toStepEvent(SessionRow s, StepEvents e); }
-class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal unscale(BigDecimal shown, BigDecimal p0, BigDecimal priceStep); String volume(long lots, long v0); }
+class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal unscale(BigDecimal shown, BigDecimal p0, BigDecimal priceStep); String volume(long lots, long v0); String money(BigDecimal rub, BigDecimal initialCash); }
 ```
 
 Создание: `choosePeriod(manual = true)` → `MarketSpec` (ключи A…E по порядку, издержки и капитал из `lab.*`, `benchmark_ticker = "IMOEX"`) → `replaySession(up_to 0)` даёт `total_steps`; `getBars(0, min(total − 1, 1000))` — первый бар каждой бумаги: `p0 = open`, `v0 = max(volume_lots, 1)`; нет бара — `NoPeriodException`. `GET` — `replaySession(up_to = cursor, include_history)` и маска. Чужая сессия — 404.
 
-Маска слепого режима (INV-7, `decisions.md`, «Деньги и округление», п. 8): `label = "Бумага " + key`, только сектор; нет `ticker`, `name`, `priceStep`, `time`; цены — `price · 100 / p0`, 6 знаков HALF_UP, без лишних нулей; объём — `lots / v0`, 4 знака HALF_UP; средняя цена позиции и цены заявок — так же; суммы в рублях не меняются. Ошибки, уходящие клиенту, не содержат тикер и даты.
+Маска слепого режима (INV-7, `decisions.md`, «Деньги и округление», п. 8): `label = "Бумага " + key`, только сектор; нет `ticker`, `name`, `priceStep`, `time`; цены — `price · 100 / p0`, 6 знаков HALF_UP, без лишних нулей; объём — `lots / v0`, 4 знака HALF_UP; средняя цена позиции и цены заявок — так же; `lotSize` не отдаётся. Денежные суммы (деньги, стоимость портфеля и позиций, P&L, сумма сделки, комиссия, сбор) — `сумма / initial_cash · 100`, 6 знаков HALF_UP, `moneyUnit = PERCENT_OF_CAPITAL`; реальные рубли — только после раскрытия (задача 40). Остаточный «отпечаток» — стоимость лота в % капитала — принят (`decisions.md`, «Слепой режим»). Ошибки, уходящие клиенту, не содержат тикер и даты.
 
 **Тесты:**
-- `BlindScalerTest`: `price(271.35, 271.35) == "100"`; `price(284.9175, 271.35) == "105"`; `unscale(105, 271.35, 0.01) == 284.92`; `volume(150, 1000) == "0.15"`.
-- `BlindContractTest` (INV-7): JSON ответа `GET /api/sessions/{id}` слепой сессии не содержит тикеров и названий бумаг сессии, строк вида `\d{4}-\d{2}-\d{2}` и полей `time`, `ticker`, `name`; `bars[0].open == "100"`.
+- `BlindScalerTest`: `price(271.35, 271.35) == "100"`; `price(284.9175, 271.35) == "105"`; `unscale(105, 271.35, 0.01) == 284.92`; `volume(150, 1000) == "0.15"`; `money(271540.00, 1000000) == "27.154"`; `money(135.77, 1000000) == "0.013577"`; `money(-0.01, 1000000) == "-0.000001"`.
+- `BlindContractTest` (INV-7): JSON ответа `GET /api/sessions/{id}` слепой сессии не содержит тикеров и названий бумаг сессии, строк вида `\d{4}-\d{2}-\d{2}` и полей `time`, `ticker`, `name`, `lotSize`; `bars[0].open == "100"`; `moneyUnit == "PERCENT_OF_CAPITAL"`, `portfolio.cash == "100"` при нетронутом капитале.
 - `SessionApiTest`: `createRandomSession` (201, `cursor == 0`, `blind == true`); `createDateSessionIsNotBlind` (тикеры видны); `noPeriod422`; `tooManyBars422`; `foreignSession404`; `getReplaysUpToCursor` (запрос к воркеру — `up_to_step == cursor`).
 - `JournalImmutabilityTest` (INV-8): `update`/`delete` строки журнала через JDBC → исключение.
 
@@ -1319,9 +1333,9 @@ class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal uns
 
 **Files:** Create: `sessions/SessionFinished.java` (событие: `UUID sessionId, UUID ownerId, boolean blind, byte[] report, byte[] market`), `sessions/internal/FinishService.java`, `sessions/web/{FinishController,ReplayController}.java`; тест `sessions/web/FinishApiTest.java`.
 
-Поведение: `SessionEndReached` → `finish(END | BANKRUPT)`; `POST /finish` → `finish(EARLY)` (отрезок — до `cursor`). `finish`: статус `FINISHED`, причина, `finished_at`, `playing = false`; `replay(up_to = cursor, include_report)`; событие `SessionFinished` с байтами `Report` и `MarketSpec`; SSE `finished` с `Reveal`. После завершения `GET` отдаёт данные без маски и с `reveal`. `GET /replay` — только для завершённой (иначе 409): `getBars(0, cursor)` + заявки и сделки из `replay`, без маски.
+Поведение: `SessionEndReached` → `finish(END | BANKRUPT)`; `POST /finish` → `finish(EARLY)` (отрезок — до `cursor`). `finish`: статус `FINISHED`, причина, `finished_at`, `playing = false`; `replay(up_to = cursor, include_report)`; событие `SessionFinished` с байтами `Report` и `MarketSpec`; SSE `finished` с `Reveal`. После завершения `GET` отдаёт данные без маски: реальные цены, `lotSize`, рубли (`moneyUnit = RUB`) и `reveal`. `GET /replay` — только для завершённой (иначе 409): `getBars(0, cursor)` + заявки и сделки из `replay`, без маски.
 
-**Тесты:** `earlyFinishPublishesReport`; `endReachedFinishesWithEnd`; `bankruptReason`; `revealOnlyAfterFinish` (INV-7: до завершения `reveal` нет, после — тикеры и даты есть); `replayConflictBeforeFinish`.
+**Тесты:** `earlyFinishPublishesReport`; `endReachedFinishesWithEnd`; `bankruptReason`; `revealOnlyAfterFinish` (INV-7: до завершения `reveal` нет и суммы в %, после — тикеры, даты и рубли); `replayConflictBeforeFinish`.
 
 ### Задача 35: simulation: очередь фоновых заданий
 
@@ -1497,7 +1511,7 @@ public record VersionPublished(UUID versionId) {}
 
 ### Задача 44: analysis: рейтинг и каталог
 
-- **Размер:** M. **Волна:** 7. **Зависит от:** 36, 39. **Связано:** ФТ-16, НФТ-2, UC-22, UC-24, INV-3, INV-4, `decisions.md` («Рейтинг»).
+- **Размер:** M. **Волна:** 7. **Зависит от:** 36, 39, DI-2. **Связано:** ФТ-16, НФТ-2, UC-22, UC-24, INV-3, INV-4, `decisions.md` («Рейтинг»).
 
 **Files:** Create: `src/main/resources/db/migration/V12__analysis_rating.sql`, `analysis/metrics/{RatingEpoch,RatingRow,RatingRepository,RatingAggregator}.java`, `analysis/internal/{RatingScheduler,RatingJobHandler,CatalogService}.java`, `analysis/web/CatalogController.java`; тесты `analysis/metrics/RatingAggregatorTest.java`, `analysis/internal/RatingSchedulerTest.java`, `analysis/web/CatalogApiTest.java`. Modify: `src/test/java/ru/ttsc/lab/MoneyTypesArchTest.java` (исключить `..analysis.metrics..`, `decisions.md`, «Деньги и округление», п. 11).
 
@@ -1565,9 +1579,9 @@ class ArenaStore {
 }
 ```
 
-Поведение: при открытии `load` (UC-6) и подписка `EventStream` на `/api/sessions/:id/events`; после переподключения — `load`; бары `afterHalt` — маркер «торги приостановлены»; заголовок бумаги — `label · sector` (в неслепой — и тикер); переключение бумаг — вкладками; кнопки ×1/×5/×10, пауза, шаг (шаг недоступен во время игры). Хранилище держит только то, что прислал сервер (INV-1): никаких запросов баров впереди курсора.
+Поведение: при открытии `load` (UC-6) и подписка `EventStream` на `/api/sessions/:id/events`; после переподключения — `load`; бары `afterHalt` — маркер «торги приостановлены»; заголовок бумаги — `label · sector` (в неслепой — и тикер); денежные значения выводятся по `moneyUnit`: рубли пайпом `money` или «% капитала» (6 знаков, как пришли); переключение бумаг — вкладками; кнопки ×1/×5/×10, пауза, шаг (шаг недоступен во время игры). Хранилище держит только то, что прислал сервер (INV-1): никаких запросов баров впереди курсора.
 
-**Тесты:** `applyStepAppendsBarsAndPortfolio`; `gapInCursorTriggersReload`; `reconnectReloadsState`; `blindHeaderShowsLabelAndSectorOnly` (в DOM нет тикера); `stepDisabledWhilePlaying`; `chartLabelsDayNInBlind`.
+**Тесты:** `applyStepAppendsBarsAndPortfolio`; `gapInCursorTriggersReload`; `reconnectReloadsState`; `blindHeaderShowsLabelAndSectorOnly` (в DOM нет тикера); `blindMoneyShownAsPercent`; `stepDisabledWhilePlaying`; `chartLabelsDayNInBlind`.
 
 ### Задача 47: Арена: заявки, портфель, сделки
 
@@ -1575,9 +1589,9 @@ class ArenaStore {
 
 **Files:** `features/arena/{order-ticket.ts,order-ticket.html,orders-list.ts,portfolio-panel.ts,trades-list.ts,orders.service.ts,order-ticket.spec.ts,orders.service.spec.ts}`.
 
-Поведение: тикет — бумага, сторона, тип (7 типов ФТ-7), лоты, поля цены по типу (лимит; стоп; лимит и стоп; трейлинг %), срок «день» / «до отмены», флажок OCO со второй ногой; `seenStep = store.cursor()`; `clientOrderId = crypto.randomUUID()` один на попытку, при сетевой ошибке повтор с тем же id (ревью, п. 1); отказ — текст по `reason` (`INSUFFICIENT_CASH` — «Не хватает денег», `INSUFFICIENT_POSITION` — «Нет столько бумаг», `INVALID_PARAMS` — «Проверьте поле …», `LIQUIDITY_LIMIT` — «Не хватило ликвидности»). Список активных заявок — «Отменить», «Изменить» (тикет в режиме замены). Портфель — деньги, стоимость, позиции; сделки — с меткой «стоп раньше тейка» при `stopAndTakeSameBar`.
+Поведение: тикет — бумага, сторона, тип (7 типов ФТ-7), лоты, поля цены по типу (лимит; стоп; лимит и стоп; трейлинг %), срок «день» / «до отмены», флажок OCO со второй ногой; `seenStep = store.cursor()`; `clientOrderId = crypto.randomUUID()` один на попытку, при сетевой ошибке повтор с тем же id (ревью, п. 1); отказ — текст по `reason` (`INSUFFICIENT_CASH` — «Не хватает денег», `INSUFFICIENT_POSITION` — «Нет столько бумаг», `INVALID_PARAMS` — «Проверьте поле …», `LIQUIDITY_LIMIT` — «Не хватило ликвидности»). Список активных заявок — «Отменить», «Изменить» (тикет в режиме замены). Портфель — деньги, стоимость, позиции; сделки — с меткой «стоп раньше тейка» при `stopAndTakeSameBar`. В слепой сессии (`moneyUnit = PERCENT_OF_CAPITAL`) суммы, P&L и издержки — «% капитала», размер лота не показывается, количество — в лотах.
 
-**Тесты:** `retryKeepsClientOrderId`; `seenStepIsCursor`; `requiredFieldsByType` (у `STOP_LIMIT` обязательны обе цены); `replaceSendsReplaceRequest`; `rejectionMessages`.
+**Тесты:** `blindPortfolioInPercentNoLotSize`; `retryKeepsClientOrderId`; `seenStepIsCursor`; `requiredFieldsByType` (у `STOP_LIMIT` обязательны обе цены); `replaceSendsReplaceRequest`; `rejectionMessages`.
 
 ### Задача 48: Отчёт
 
@@ -1738,7 +1752,7 @@ class ArenaStore {
 
 | Волна | core | backend | frontend | docs-infra |
 |---|---|---|---|---|
-| 0 | 5*, 34* | 2, 12*, DI* | 13*, 63* | 64, 65 |
+| 0 | 5*, 34* | 2, 12*, DI*, DI-2 | 13*, 63* | 64, 65 |
 | 1 | 1, 3 | — | 6 | — |
 | 2 | 7, 8, 9, 10 | 4 | 45, 46, 48, 49, 50, 51, 53, 55, 56, 58 | — |
 | 3 | 11, 18, 19, 22, 23, 26 | 17, 33, 35 | 47, 57 | — |
@@ -1773,7 +1787,7 @@ class ArenaStore {
 | Требование | Задачи |
 |---|---|
 | ФТ-1 запуск | 17, 30, 36, 45, 55 |
-| ФТ-2 слепой режим | 17, 30, 40, 46 |
+| ФТ-2 слепой режим | 17, 30, 40, 46, 47 |
 | ФТ-3 архив, свечи 1 с – 1 д | DI, 34, 62, 7, 17 |
 | ФТ-4 снапшоты | DI, 17, 42 (метаданные) |
 | ФТ-5 календарь, разрывы | DI, 7, 62, 46, 63 |
@@ -1787,8 +1801,8 @@ class ArenaStore {
 | ФТ-13 линтер | 19, 24, 53, 55 |
 | ФТ-14 чтение будущего | 18, 21, 24, 59, 53 |
 | ФТ-15 публикация, версии | 39, 41, 55, 58 |
-| ФТ-16 каталог, рейтинг | 44, 56 |
-| ФТ-17 метрики | 22, 25, 42, 48 |
+| ФТ-16 каталог, рейтинг | DI-2, 44, 56 |
+| ФТ-17 метрики | DI-2, 22, 25, 42, 48 |
 | ФТ-18 человек против алгоритма, консенсус | 29, 43, 49 |
 | ФТ-19 расхождения | 20, 29, 43, 49 |
 | ФТ-20 цена ошибки, пропущенные сделки | 29, 43, 49 |
@@ -1803,10 +1817,10 @@ class ArenaStore {
 | НФТ-5 устойчивость | 15, 31, 35, 36, 46 |
 | НФТ-6 SSE, REST, HTTPS | 2, 31, 36, 52 |
 
-## Открытые вопросы плана
+## Решения по вопросам плана
 
-Решить до начала соответствующих задач; до решения — делать, как написано выше.
-1. Утечка уровня цены в слепом режиме: суммы в рублях реальные, поэтому `marketValue / lots` даёт реальную цену лота (задача 30). Варианты: показывать суммы в масштабе слепых цен или скрывать стоимость позиций до конца сессии — решает команда.
-2. IMOEX пока не импортируется: `benchmark_return` пустой, режим рейтинга — всегда «боковик» (задачи 22, 44). Нужна задача импорта IMOEX (ISS, `engine=stock&market=index`).
-3. Формулы метрик (безрисковая ставка 0, 252 дня, выборочное стандартное отклонение) и правило `afterHalt` (15 минут) — предложения плана; при изменении правятся задачи 7 и 22 и `decisions.md`.
-4. Несколько снапшотов с пересекающимися периодами (`status.md`, вопрос 3): план берёт последний готовый снапшот.
+Решения лида команды 03.11.2026; помеченное «предложение» ждёт подтверждения команды.
+1. Слепой режим: все денежные суммы в API и UI до раскрытия — в % от начального капитала (6 знаков, HALF_UP), размер лота скрыт, количество — в лотах; рубли — только после раскрытия. Остаточный отпечаток (стоимость лота в % капитала) принят, как узнаваемые по форме события. Задачи 2, 30, 40, 46, 47; `decisions.md`, «Слепой режим» (предложение).
+2. IMOEX импортируется задачей DI-2; задачи 22 и 44 зависят от неё.
+3. Формулы метрик (безрисковая ставка 0, 252 дня, выборочное стандартное отклонение) и правило `afterHalt` (15 минут) — предложения плана, как написано в задачах 7 и 22.
+4. Несколько снапшотов с пересекающимися периодами (`status.md`, вопрос 3): берётся последний готовый снапшот — предложение плана.
