@@ -316,13 +316,13 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `OrderPlacement` | `accepted: bool`, `orders: OrderView[]`, `reason?`, `invalidField?` |
 | `Metrics` | поля proto `Metrics` в camelCase, `number`/`integer`, необязательные — nullable |
 | `CostTotals` | `commission, exchangeFee, spread, slippage: Money` |
-| `Report` | `subjectType: SESSION\|RUN`, `subjectId`, `level: OK\|WARNING\|ERROR`, `metrics`, `costs`, `finalEquity: Money`, `equity: [{step, equity: Money}]`, `findings: [{code, level, message, step}]`, `trades: TradeView[]`, `orders: OrderView[]` (с `ruleName` и `because` — причина правила попадает в отчёт, ФТ-12), `costBreakdown?: {steps: [{factor, netResult: Money, netReturn}], flags: [COSTS_OVER_HALF_PROFIT\|SIGN_CHANGE\|SHARPE_OVER_3]}`, `reveal?: Reveal`, `metadata: {snapshotId, snapshotFetchedAt, contentHash, timeframe, periodFrom, periodTo, instruments[], costs: {…: Money}, initialCash, strategyVersionId?, params?, stress?, stressStartStep?}` (`stressStartStep` — шаг начала стресса после разрешения `start_step < 0`; для пресета — шаг первой даты окна) |
-| `ParamDecl`, `Diagnostic`, `TextEdit` | поля proto в camelCase; `level: error\|warning` |
+| `Report` | `subjectType: SESSION\|RUN`, `subjectId`, `level: OK\|WARNING\|ERROR`, `metrics`, `costs`, `finalEquity: Money`, `equity: [{step, equity: Money}]`, `findings: [{code, level, message, step}]`, `trades: TradeView[]`, `orders: OrderView[]` (с `ruleName` и `because` — причина правила попадает в отчёт, ФТ-12), `costBreakdown?: {steps: [{factor, netResult: Money, netReturn}], flags: [COSTS_OVER_HALF_PROFIT\|SIGN_CHANGE\|SHARPE_OVER_3]}`, `reveal?: Reveal`, все необязательные поля `Report` — nullable (приходит `null`, поле не пропускается); `metadata: {snapshotId, snapshotFetchedAt, contentHash, timeframe, periodFrom, periodTo, instruments[], costs: {…: Money}, initialCash, strategyVersionId?, params?, stress?, stressStartStep?}` (`stressStartStep` — шаг начала стресса после разрешения `start_step < 0`; для пресета — шаг первой даты окна) |
+| `ParamDecl`, `Diagnostic`, `TextEdit` | поля proto в camelCase; `Diagnostic {code, level: error\|warning, startLine, startColumn, endLine, endColumn, message, fix?: TextEdit[]}` |
 | `CheckResult` | `level: OK\|WARNING\|ERROR`, `diagnostics[]`, `params: ParamDecl[]` |
 | `StrategySummary` | `id`, `name`, `hidden`, `deleted`, `updatedAt`, `latestVersion?: {id, number, published}` |
 | `Strategy` | `StrategySummary` + `draftSource`, `forkedFrom?: {strategyId, versionId, versionNumber, author, sourceDeleted: bool}`, `versions: VersionSummary[]` |
 | `VersionSummary` | `id`, `number`, `published`, `checkLevel`, `lintWarnings: int`, `createdAt` |
-| `Version` | `VersionSummary` + `strategyId`, `strategyName`, `author` (имя или «Платформа»), `source`, `params`, `diagnostics` (рейтинга здесь нет: он в модуле analysis, отдельный эндпоинт) |
+| `Version` | `VersionSummary` + `strategyId`, `strategyName`, `author` (имя или «Платформа»), `owned: bool` (версия текущего пользователя), `hidden: bool`, `deleted: bool`, `source`, `params`, `diagnostics` (рейтинга здесь нет: он в модуле analysis, отдельный эндпоинт) |
 | `Rating` | `epochId`, `status: PENDING\|DONE\|INVALID`, `score?`, `byRegime: {UP\|DOWN\|FLAT: {score?, windows}}`, `medianSharpe?`, `medianMaxDrawdown?`, `profitableShare?`, `invalidReason?` |
 | `CatalogItem` | `strategyId`, `name`, `author`, `latestVersion: {id, number}`, `rating?`, `lintWarnings` |
 | `RunRequest` | `versionId`, `params: [{name, value}]`, `timeframe`, `durationDays: int ≥ 1`, `instrumentCount?`, `start: SessionStart`, `stress?: StressRequest` |
@@ -330,9 +330,9 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `Run` | `id`, `stressStartStep?`, `status: QUEUED\|RUNNING\|DONE\|FAILED`, `runStatus?: COMPLETED\|BANKRUPT_STOP\|INVALID`, `level?`, `versionId`, `params`, `blind`, `progress: {done, total}`, `stressPairRunId?`, `repeatOf?`, `repeatMatches?: bool`, `digest?: string`, `error?`, `createdAt` |
 | `RunEvent` (SSE) | имя события SSE (`event:`) = `type`; `oneOf` по `type`: `ProgressEvent {type: "progress", done, total}`, `CompletedEvent {type: "completed", status, runStatus?}` |
 | `WalkForwardRequest` | `versionId`, `timeframe`, `from: date`, `to: date`, `tickers: string[1..5]` |
-| `WalkForward` | `id`, `status`, `progress`, `segments: [{index, fitFrom, fitTo, testFrom, testTo, chosenParams: [{name, value}], fitNetReturn, testRunId, testNetReturn}]`, `chainedReturn?` |
+| `WalkForward` | `id`, `status`, `progress`, `segments: [{index, fitFrom, fitTo, testFrom, testTo, chosenParams: [{name, value}], fitNetReturn, testRunId, testNetReturn}]`, `chainedReturn?`, `error?` |
 | `ComparisonRequest` | `versionIds: uuid[0..5]` (пусто — эталонная стратегия) |
-| `Comparison` | `id`, `status: QUEUED\|RUNNING\|DONE\|FAILED`, `algorithms: [{versionId, name}]`, `divergences: [{versionId, instrumentKey, type: EXCESS\|MISSED\|SIZE\|TIMING, humanStep?, algoStep?, humanLots, algoLots, horizonStep, cost: Money, costPercent, reason}]`, `missedProfitable: [{instrumentKey, entryStep, exitStep, lots, netPnl, versionIds[]}]`, `consensus: [{instrumentKey, step, side, humanAction, agreeing, total, medianCost}]`, `totalCost: Money`, `algorithmReports: Report[]` |
+| `Comparison` | `id`, `status: QUEUED\|RUNNING\|DONE\|FAILED`, `error?`, `algorithms: [{versionId, name}]`, `divergences: [{versionId, instrumentKey, type: EXCESS\|MISSED\|SIZE\|TIMING, humanStep?, algoStep?, humanLots, algoLots, horizonStep, cost: Money, costPercent, reason}]`, `missedProfitable: [{instrumentKey, entryStep, exitStep, lots, netPnl, versionIds[]}]`, `consensus: [{instrumentKey, step, side, humanAction, agreeing, total, medianCost}]`, `totalCost: Money`, `algorithmReports: Report[]` |
 | `HistoryItem` | `kind: SESSION\|RUN`, `id`, `createdAt`, `status`, `blind`, `mode: HUMAN\|ALGORITHM`, `title`, `netReturn?`, `finishReason?` |
 | `DeletionRequest` | `id`, `strategyId`, `strategyName`, `reason`, `status: PENDING\|APPROVED\|REJECTED`, `comment?`, `createdAt` |
 | `ReplayData` | `bars: BarView[]` (все, раскрытые), `trades[]`, `orders[]`, `instruments[]` (с тикерами), `totalSteps` |
@@ -382,6 +382,7 @@ message DivergenceResponse { repeated Divergence divergences = 1; repeated Misse
 | `POST /api/walk-forwards` | simulation | `WalkForwardRequest` → 202 `WalkForward` |
 | `GET /api/walk-forwards/{id}` | simulation | → `WalkForward` |
 
+- Коды ответов: 422 `INVALID_PARAMS` — нарушение бизнес-правил (диапазоны, длины, ограничения); 400 — только неразбираемый JSON и неверные типы; чужой ресурс — 404 везде; 403 — только нехватка роли и CSRF.
 - [ ] Описать схемы и эндпоинты; у каждого эндпоинта — `operationId` (camelCase, глагол + сущность: `createSession`, `placeOrder`), `tags`, ответы ошибок `401`, `403`, `404`, `422` где применимо.
 - [ ] `npx @redocly/cli lint api/openapi.yaml` — без ошибок.
 - [ ] Коммит «OpenAPI: контракт REST и SSE для ФТ-1…24».
@@ -1171,7 +1172,7 @@ DivergenceResult analyzeDivergences(const SessionSpec&, std::shared_ptr<const Ti
 
 ## Трек backend
 
-Id пользователя — `bigint` в таблицах и `long`/`Long` в Java (как в identity); `owner_id` всех таблиц — `bigint`. Исключения модуля переводятся в `Problem` с `code` своим `@RestControllerAdvice` в `<модуль>.web` (как в identity).
+Id пользователя — `bigint` в таблицах и `long`/`Long` в Java (как в identity); `owner_id` всех таблиц — `bigint`. Исключения модуля переводятся в `Problem` с `code` своим `@RestControllerAdvice` в `<модуль>.web` (как в identity). Коды: нарушение бизнес-правил — 422 `INVALID_PARAMS` с `field`; 400 — только неразбираемый JSON и неверные типы; чужой ресурс — 404 (не 403); 403 — только нехватка роли и CSRF.
 
 Общее для задач трека: модуль `ru.ttsc.lab.<модуль>`; публичный API модуля — типы в корне пакета, реализация — `<модуль>.internal`, контроллеры и DTO (records) — `<модуль>.web`.
 
@@ -1329,7 +1330,7 @@ class BlindScaler { String price(BigDecimal real, BigDecimal p0); BigDecimal uns
 
 **Files:** Create: `sessions/internal/{OrderService,OrderViewMapper}.java`, `sessions/web/{OrderController,OrderDtos}.java`; тесты `sessions/web/OrderApiTest.java`, `sessions/internal/OrderConcurrencyTest.java`.
 
-Поведение: проверка формы (`lots ≥ 1`, цены по типу) → 422 `INVALID_PARAMS` с `field`; `lockForUpdate`; повтор `clientOrderId` — тот же ответ без новой записи (ревью, п. 1); сессия не `ACTIVE` → `accepted = false`, `SESSION_NOT_ACTIVE`; в слепой сессии цены переводятся `BlindScaler.unscale`; в неслепой — округляются до шага HALF_UP; запись журнала: `seq = max + 1`, `step = cursor` (INV-2: не раньше последнего показанного), `seen_step` из запроса; `replay(up_to = cursor)` с новой записью → `command_results[seq]` → строка журнала с `accepted`, `reason` → ответ `OrderPlacement` (заявки из `order_ids`, с маской). Отмена и замена — записи `cancel` / `replace` тем же путём.
+Поведение: проверка формы (`lots ≥ 1`, цены по типу) → 422 `INVALID_PARAMS` с `field` (400 — только неразбираемый JSON); чужая сессия — 404; `lockForUpdate`; повтор `clientOrderId` — тот же ответ без новой записи (ревью, п. 1); сессия не `ACTIVE` → `accepted = false`, `SESSION_NOT_ACTIVE`; в слепой сессии цены переводятся `BlindScaler.unscale`; в неслепой — округляются до шага HALF_UP; запись журнала: `seq = max + 1`, `step = cursor` (INV-2: не раньше последнего показанного), `seen_step` из запроса; `replay(up_to = cursor)` с новой записью → `command_results[seq]` → строка журнала с `accepted`, `reason` → ответ `OrderPlacement` (заявки из `order_ids`, с маской). Отмена и замена — записи `cancel` / `replace` тем же путём.
 
 **Тесты:** `journaledAtCursorNotSeenStep` (`seenStep = 2`, `cursor = 5` → `step = 5`); `duplicateClientOrderIdIsIdempotent`; `blindLimitPriceUnscaled` (показанная 105 при `p0 = 271.35` → воркер получает `284.92`); `rejectedOrderIsJournaled`; `cancelFilledOrderNotActive` (воркер вернул `ORDER_NOT_ACTIVE` → `accepted = false`); `replaceIsOneEntry`; `OrderConcurrencyTest.concurrentTicksAndOrdersSerialize` — 20 тиков (`SessionClock` задачи 31) и 20 заявок из двух потоков: `cursor` не убывает, `step` записей журнала не убывает по `seq`, взаимной блокировки нет (ревью, п. 2).
 
@@ -1410,9 +1411,9 @@ public record RunCompleted(UUID runId, Long ownerId, RunPurpose purpose, UUID ve
 
 **Files:** Create: `src/main/resources/db/migration/V9__simulation_walk_forward.sql` (`simulation.walk_forwards(id uuid pk, owner_id bigint not null, version_id uuid not null, request jsonb not null, status text not null, progress_done bigint, progress_total bigint, result jsonb, error text, created_at, finished_at)`), `simulation/internal/WalkForwardJobHandler.java`, `simulation/web/WalkForwardController.java`; тест `simulation/web/WalkForwardApiTest.java`.
 
-Поведение: `POST` — тикеры и даты из запроса (неслепой), `fit/test/shift/max-grid` из `lab.walk-forward`; задание `WALK_FORWARD` → `runWalkForward`; проверочный прогон каждого отрезка сохраняется строкой `runs` через `RunRepository.insertCompleted` (`purpose = WALK_FORWARD`, `result`) и публикуется `RunCompleted` (отчёт строит задача 42); `testRunId` — её id.
+Поведение: `POST` — тикеры и даты из запроса (неслепой), `fit/test/shift/max-grid` из `lab.walk-forward`; до постановки в очередь backend считает размер сетки по `ParamDecl` версии (произведение по параметрам с диапазоном: `floor((max − min) / step) + 1`) и при превышении `max-grid` отвечает синхронно 422 `INVALID_PARAMS` (`versionId`, в `detail` — размер сетки и предел); ошибка задания — в `error`; задание `WALK_FORWARD` → `runWalkForward`; проверочный прогон каждого отрезка сохраняется строкой `runs` через `RunRepository.insertCompleted` (`purpose = WALK_FORWARD`, `result`) и публикуется `RunCompleted` (отчёт строит задача 42); `testRunId` — её id.
 
-**Тесты:** `segmentsMapped`; `gridTooLargeFails` (воркер → `INVALID_ARGUMENT` → `FAILED` с текстом); `testRunsHaveReports` (событие `RunCompleted` на каждый отрезок).
+**Тесты:** `segmentsMapped`; `gridTooLarge422` (сетка 15 × 15 = 225 > 200 → 422 при создании, задание не ставится); `testRunsHaveReports` (событие `RunCompleted` на каждый отрезок).
 
 ### Задача 60: simulation: повтор прогона (UC-18)
 
@@ -1439,7 +1440,7 @@ create table workshop.strategies (
   forked_from_version_id uuid, created_at timestamptz not null default now());
 ```
 
-Поведение: список — свои неудалённые; черновик больше 64 КиБ — 422 `INVALID_PARAMS` (`source`); `POST /api/strategies/check` → `checkStrategy` → `CheckResult` (уровень, диагностики, параметры). Чужая стратегия — 404.
+Поведение: список — свои неудалённые; черновик больше 64 КиБ — 422 `INVALID_PARAMS` (`source`); `POST /api/strategies/check` → `checkStrategy` → `CheckResult` (уровень, диагностики, параметры). Чужая стратегия — 404. Пустое или длиннее 100 символов имя — 422 `INVALID_PARAMS` (`name`).
 
 `ParamDecl` в `CheckResult` — с `BigDecimal`.
 
@@ -1479,7 +1480,7 @@ public record VersionPublished(UUID versionId) {}
 
 Значения параметров — `BigDecimal`, а не `double` (`MoneyTypesArchTest`); в proto и JSON — числа.
 
-Поведение: `POST /strategies/{id}/versions` — `checkStrategy(draft)`; уровень `ERROR` → 422 `DSL_ERRORS` (диагностики — в `errors` problem-ответа); иначе версия с `number = max + 1`. `publish` — владелец, однократно; событие `VersionPublished`. `GET /versions/{id}` — владельцу всегда; остальным — опубликованная и не удалённая (скрытая — по прямой ссылке видна). `fork` — новая стратегия владельца с черновиком = текст версии, `forked_from_version_id`; у удалённой — 404. `hide` / `unhide` — владелец.
+Поведение: `POST /strategies/{id}/versions` — `checkStrategy(draft)`; уровень `ERROR` → 422 `DSL_ERRORS` (диагностики — в `errors` problem-ответа: `level`, `startLine`, `startColumn`, `endLine`, `endColumn`, `fix`); иначе версия с `number = max + 1`. `publish` — владелец, однократно; событие `VersionPublished`. `GET /versions/{id}` — владельцу всегда; остальным — опубликованная и не удалённая (скрытая — по прямой ссылке видна). `fork` — новая стратегия владельца с черновиком = текст версии, `forked_from_version_id`; у удалённой — 404. `hide` / `unhide` — владелец.
 
 **Тесты:** `VersionImmutabilityTest` (INV-5: смена `source` и снятие публикации через JDBC → исключение); `errorsBlockVersion422`; `publishOnceAndEvent`; `forkKeepsSourceLink`; `hiddenVisibleByDirectLink`; `referenceSeedPresent` (id, `published`, 6 параметров, текст совпадает с `testdata/dsl/reference.lab` из `core` — копия в `src/test/resources/workshop/reference.lab`).
 
@@ -1499,7 +1500,7 @@ public record VersionPublished(UUID versionId) {}
 
 **Files:** Create: `src/main/resources/db/migration/V10__analysis_reports.sql` (`analysis.reports(id uuid pk, subject_type text not null check (subject_type in ('SESSION','RUN')), subject_id uuid not null, owner_id bigint, level text not null, report jsonb not null, created_at timestamptz not null default now(), unique (subject_type, subject_id))`), `analysis/internal/{ReportListener,ReportJsonMapper,ReportRepository,HistoryService}.java`, `analysis/web/{ReportController,HistoryController}.java`; тесты `analysis/internal/ReportJsonMapperTest.java`, `analysis/web/{ReportApiTest,HistoryApiTest}.java`.
 
-Поведение: `SessionFinished` и `RunCompleted` → `ReportJsonMapper` (proto `Report` + `CostBreakdown` + метаданные: снапшот через `MarketData.snapshot`, период и бумаги из `MarketSpec`, версия и параметры прогона, `reveal` для сессий) → JSON строго по схеме `Report` (деньги — строки `Decimals.toBigDecimal(...).toPlainString()` без лишних нулей, метрики — числа, пустые `optional` — `null`). Поле `double` в классах не заводится: метрики пишутся прямо в `ObjectNode`. История: `SessionQueries.listByOwner` + `RunQueries.listByOwner` (только `USER`) + `netReturn` из `report->'metrics'->>'totalReturn'` (`numeric`), новые первыми; заголовок — слепая незавершённая сессия «Слепая сессия от ДД.ММ.ГГГГ», завершённая — тикеры через запятую, прогон — «<стратегия> v<номер>».
+Поведение: `SessionFinished` и `RunCompleted` → `ReportJsonMapper` (proto `Report` + `CostBreakdown` + метаданные: снапшот через `MarketData.snapshot`, период и бумаги из `MarketSpec`, версия и параметры прогона, `reveal` для сессий) → JSON строго по схеме `Report` (деньги — строки `Decimals.toBigDecimal(...).toPlainString()` без лишних нулей, метрики — числа, пустые `optional` и все необязательные поля `Report` — `null`, поле не пропускается). Поле `double` в классах не заводится: метрики пишутся прямо в `ObjectNode`. История: `SessionQueries.listByOwner` + `RunQueries.listByOwner` (только `USER`) + `netReturn` из `report->'metrics'->>'totalReturn'` (`numeric`), новые первыми; заголовок — слепая незавершённая сессия «Слепая сессия от ДД.ММ.ГГГГ», завершённая — тикеры через запятую, прогон — «<стратегия> v<номер>».
 
 **Тесты:** `ReportJsonMapperTest`: деньги `{1278446, 620000000}` → `"1278446.62"`; пустой `sharpe` → `null`; `reportStoredOnSessionFinished`; `reportMatchesContract`; `foreignReport404`; `historyBlindOnlyFilter` (ФТ-21); `historyNewestFirst`.
 
@@ -1509,11 +1510,11 @@ public record VersionPublished(UUID versionId) {}
 
 **Files:** Create: `src/main/resources/db/migration/V11__analysis_comparisons.sql` (`analysis.comparisons(id uuid pk, session_id uuid not null, owner_id bigint not null, version_ids jsonb not null, status text not null, result jsonb, error text, created_at timestamptz not null default now(), finished_at timestamptz)`), `analysis/internal/{ComparisonService,ComparisonJobHandler,ComparisonJsonMapper}.java`, `analysis/web/ComparisonController.java`; тест `analysis/web/ComparisonApiTest.java`.
 
-Поведение: сессия своя и `FINISHED` (иначе 409 `CONFLICT`); `versionIds` пусто → эталон (`StrategyVersions.reference()`); больше 5 → 422; каждая версия видна пользователю. Задание `COMPARISON` → `analyzeDivergences(market, journal, last_step = cursor, алгоритмы с параметрами по умолчанию)` → JSON `Comparison`; `totalCost` — сумма цен ошибок при одном алгоритме, при нескольких — сумма `medianCost` консенсуса; `algorithmReports` — отчёты независимых портфелей.
+Поведение: чужая сессия — 404; не `FINISHED` — 409 `CONFLICT`; `versionIds` пусто → эталон (`StrategyVersions.reference()`); больше 5 — 422 `INVALID_PARAMS` (`versionIds`); невидимая пользователю версия — 404. Ошибка задания — в `error`. Задание `COMPARISON` → `analyzeDivergences(market, journal, last_step = cursor, алгоритмы с параметрами по умолчанию)` → JSON `Comparison`; `totalCost` — сумма цен ошибок при одном алгоритме, при нескольких — сумма `medianCost` консенсуса; `algorithmReports` — отчёты независимых портфелей.
 
 `GET /api/comparisons/{id}` отдаёт сохранённый JSON как `JsonNode` (в нём `costPercent` — число; полей `double` в классах нет).
 
-**Тесты:** `defaultUsesReference`; `moreThanFive422`; `unfinishedSession409`; `resultMappedWithConsensus`.
+**Тесты:** `defaultUsesReference`; `moreThanFive422`; `foreignSession404`; `unfinishedSession409`; `resultMappedWithConsensus`.
 
 ### Задача 44: analysis: рейтинг и каталог
 
@@ -1649,7 +1650,7 @@ class ArenaStore {
 
 **Interfaces:** `toOffset(doc: string, line: number, column: number): number` (строки и столбцы с 1, столбцы — кодовые точки); `applyFix(doc: string, edits: TextEdit[]): string` (правки применяются с конца документа).
 
-Поведение: `/workshop` — свои стратегии и «Новая»; `/workshop/:strategyId` — CodeMirror с подсветкой ключевых слов `dsl.md`; через 500 мс после правки — `POST /strategies/check` → диагностики в `@codemirror/lint` (ошибки красным, `L001` и `W-LA01` — жёлтым, у `L001` действие «Вынести в параметр» — `applyFix`); автосохранение черновика через 2 с без правок (`PUT draft`); «Создать версию» (`POST versions`; 422 — показать диагностики); список версий со ссылками на `/versions/:id`. Сводка уровня проверки: OK / предупреждение / ошибка (ФТ-14).
+Поведение: `/workshop` — свои стратегии и «Новая»; `/workshop/:strategyId` — CodeMirror с подсветкой ключевых слов `dsl.md`; через 500 мс после правки — `POST /strategies/check` → диагностики в `@codemirror/lint` по `level`, `startLine`/`startColumn`–`endLine`/`endColumn` (ошибки красным, `L001` и `W-LA01` — жёлтым, у `L001` действие «Вынести в параметр» — `applyFix`); автосохранение черновика через 2 с без правок (`PUT draft`); «Создать версию» (`POST versions`; 422 — показать диагностики); список версий со ссылками на `/versions/:id`. Сводка уровня проверки: OK / предупреждение / ошибка (ФТ-14).
 
 **Тесты:** `toOffsetMultiline`; `applyFixInsertsParamAndReplacesLiteral` (`sma(close, 20)` + исправление `L001` → текст с `param sma_n = 20` и `sma(close, sma_n)`); `checkDebounced500ms`; `autosaveAfterIdle`.
 
@@ -1659,7 +1660,7 @@ class ArenaStore {
 
 **Files:** `features/version/{version-page.ts,version-page.html,run-form.ts,walk-forward-form.ts,version.store.ts,run-form.spec.ts,version-page.spec.ts}`.
 
-Поведение: текст (только чтение), автор («Платформа» у эталона), параметры с диапазонами, предупреждения линтера (число — на карточке, ФТ-13), рейтинг по режимам (`GET /versions/:id/rating`, отдельно от карточки); действия: «Опубликовать» (владелец), «Форк» (имя), «Скрыть» / «Вернуть в каталог» (владелец), «Запросить удаление» (причина). Форма прогона: параметры (проверка диапазона на клиенте), шаг, длительность в торговых днях, начало, стресс — нет / параметрический (X, k, N, q, шаг начала) / пресет («24.02.2022», «март 2020») → `POST /runs` → `/runs/:id`. Форма walk-forward: даты, до 5 тикеров, шаг → `POST /walk-forwards` → `/walk-forwards/:id`.
+Поведение: текст (только чтение), автор («Платформа» у эталона), параметры с диапазонами, предупреждения линтера (число — на карточке, ФТ-13), рейтинг по режимам (`GET /versions/:id/rating`, отдельно от карточки); действия: «Опубликовать», «Скрыть» / «Вернуть в каталог» — только при `owned` (кнопки по полю версии, без сравнения id); «Форк» (имя), «Запросить удаление» (причина); при `deleted` — пометка «удалена». Форма прогона: параметры (проверка диапазона на клиенте), шаг, длительность в торговых днях, начало, стресс — нет / параметрический (X, k, N, q, шаг начала) / пресет («24.02.2022», «март 2020») → `POST /runs` → `/runs/:id`. Форма walk-forward: даты, до 5 тикеров, шаг → `POST /walk-forwards` → `/walk-forwards/:id`.
 
 **Тесты:** `paramOutOfRangeBlocksSubmit`; `presetHidesParametricFields`; `ownerActionsOnlyForOwner`; `forkNavigatesToWorkshop`.
 
