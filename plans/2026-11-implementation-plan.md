@@ -532,7 +532,7 @@ Fixture fixture1();
 - Шаги — отсортированное объединение `tsOpenMs` всех бумаг; на шаге у бумаги бар есть, только если у неё есть бар с этим временем. Бар шага становится видимым, только когда курсор дошёл до шага (после закрытия бара, ФТ-5); это держит движок (задача 15).
 - Московская дата бара — `tsOpenMs` + 3 ч; `tradingDay` — номер даты среди различных дат шкалы, с 1.
 - `volumeLots = volume / lotSize` с округлением вниз (объём в штуках — README импортёра DI).
-- `afterHalt` (ФТ-5, предложение плана): у бумаги есть предыдущий бар и либо между их датами в календаре есть торговый день (`isTrading`), либо дата та же и разрыв ≥ 15 минут и ≥ 2 интервалов шага.
+- `afterHalt` (ФТ-5, предложение плана): у бумаги есть предыдущий бар и либо между их датами в календаре есть торговый день (`isTrading`; по DI торговый день — день, когда были свечи хоть одной бумаги, выходные тоже бывают торговыми), либо дата та же и разрыв ≥ 15 минут и ≥ 2 интервалов шага.
 - `fixture1()` — снапшот `fixture-1`, шаг D1, торговые дни 2024-01-09…12, 15…19, 22 (10 дней; календарь 2024-01-08…22, выходные — `isTrading = false`): бумага A (лот 10, шаг 0.01) — close 100, 101, 103, 106, 104, 101, 99, 102, 105, 108, open = close предыдущего дня (первый — 100), high = max(open, close) + 1, low = min(open, close) − 1, объём 100 000 штук; бумага B (лот 10000, шаг 0.000005) — open = high = low = close = 0.0200, объём 10⁹ штук, бара 2024-01-12 нет. `tsOpenMs` — начало суток МСК в UTC, `availableAtMs` — плюс 24 ч.
 
 **Тесты:**
@@ -1706,13 +1706,39 @@ class ArenaStore {
 
 - **Готово, когда:** каждая строка таблиц ниже указывает на существующий тест.
 
+### Задача 64: Колонка «Проверка» для уже существующих проверок
+
+- **Репозиторий:** documentation. **Размер:** S. **Волна:** 0. **Зависит от:** —. **Связано:** INV-4, INV-5, INV-6, `workflow.md` («Когда обновлять документы»).
+
+**Files:** Modify: `invariants.md` (только колонка «Проверка» строк INV-4, INV-5, INV-6), `status.md` («Где мы»: каркасы и импорт данных влиты).
+
+Вписать то, что уже есть в `main`:
+- INV-4 — `core/tests/determinism_test.cpp` (заглушка каркаса; настоящий тест — задача 21), запускается в CI `core`.
+- INV-5 — `backend/tools/marketdata-import/tests`: `test_snapshot.py`, `test_clickhouse.py::test_reimport_*` (снапшот не дописывается, повтор — новый id).
+- INV-6 — `core/tests/money/*` (тесты `Decimal`), `backend/src/test/java/ru/ttsc/lab/MoneyTypesArchTest.java`, `backend/tools/marketdata-import/tests` (`test_no_float_columns_in_schema`).
+
+- **Готово, когда:** каждая вписанная ссылка указывает на существующий файл в `main`. Задача 54 дописывает остальные проверки по мере появления.
+
+### Задача 65: ADR на библиотеки фронтенда
+
+- **Репозиторий:** documentation. **Размер:** S. **Волна:** 0. **Зависит от:** —. **Связано:** ADR-0007, ADR-0009, `frontend/AGENTS.md` («выбор библиотеки графиков, способа генерации API-клиента → ADR»).
+
+**Files:** Create: `adr/0010-lightweight-charts.md`, `adr/0011-ng-openapi-gen.md`, `adr/0012-codemirror-dsl-editor.md`. Modify: `adr/README.md`.
+
+- ADR-0010: графики — `lightweight-charts` (уже в `main`, задача 63): свечи, маркеры, кривая капитала; лицензия Apache-2.0 с требованием атрибуции TradingView в интерфейсе; альтернативы — ECharts (тяжелее), Chart.js с плагином свечей (слабее на тысячах баров).
+- ADR-0011: TS-клиент — `ng-openapi-gen` (чистый Node, без Java в CI фронтенда); альтернатива — `openapi-generator-cli` (нужна Java).
+- ADR-0012: редактор DSL — CodeMirror 6 (`@codemirror/lint` для диагностик и исправлений `dsl.md`); альтернатива — Monaco (тяжелее, свой загрузчик воркеров).
+- Статус всех трёх — «Предложен» (предложено агентом, ждёт подтверждения команды), шаблон `adr/0000-template.md`.
+
+- **Готово, когда:** три файла и три строки в `adr/README.md`; противоречий с ADR-0007, ADR-0009 нет.
+
 ---
 
 ## Сводка волн
 
 | Волна | core | backend | frontend | docs-infra |
 |---|---|---|---|---|
-| 0 | 5*, 34* | 2, 12*, DI* | 13*, 63* | — |
+| 0 | 5*, 34* | 2, 12*, DI* | 13*, 63* | 64, 65 |
 | 1 | 1, 3 | — | 6 | — |
 | 2 | 7, 8, 9, 10 | 4 | 45, 46, 48, 49, 50, 51, 53, 55, 56, 58 | — |
 | 3 | 11, 18, 19, 22, 23, 26 | 17, 33, 35 | 47, 57 | — |
@@ -1734,9 +1760,9 @@ class ArenaStore {
 | INV-1 | 15 `Replay.NoFutureBars`; 25 `ReplaySession.UpToStepNoFuture`; 31 `stepEventBarsOnlyAtCursor`; 46 (хранилище не запрашивает будущее); 61 |
 | INV-2 | 11 `MarketOrders.NotBeforeNextBar`; 15 `Replay.OrderExecutesNextBar`; 32 `journaledAtCursorNotSeenStep`; 61; исключение — наивный прогон, 27 |
 | INV-3 | 21 `Backtest.SameEngineAsHuman`; 27 `CostBreakdown.LastEqualsHonestRun`; 29 (V алгоритма — тем же движком) |
-| INV-4 | 3 `BuildFlags.NoFusedMultiplyAdd`; 21 `Determinism.SameDigestTwice`; 59 (одинаковый `digest`); 60 `sameDigestMatches`; 44 `RatingSchedulerTest` |
-| INV-5 | 39 `VersionImmutabilityTest`; DI (снапшоты не дописываются) |
-| INV-6 | 5 (тесты `Decimal`); 16 эталонный портфель; 33 `DecimalsTest`; 42 `ReportJsonMapperTest`; `MoneyTypesArchTest` (4, 44) |
+| INV-4 | 64 (заглушка каркаса в CI); 3 `BuildFlags.NoFusedMultiplyAdd`; 21 `Determinism.SameDigestTwice`; 59 (одинаковый `digest`); 60 `sameDigestMatches`; 44 `RatingSchedulerTest` |
+| INV-5 | 39 `VersionImmutabilityTest`; DI `tools/marketdata-import/tests` (`test_snapshot.py`, `test_reimport_*`) — вписывает 64 |
+| INV-6 | 64 (уже есть: `Decimal`, `MoneyTypesArchTest`, `test_no_float_columns_in_schema`); 5 (тесты `Decimal`); 16 эталонный портфель; 33 `DecimalsTest`; 42 `ReportJsonMapperTest`; `MoneyTypesArchTest` (4, 44) |
 | INV-7 | 30 `BlindContractTest`; 40 `revealOnlyAfterFinish`; 46 `blindHeaderShowsLabelAndSectorOnly` |
 | INV-8 | 15 `Replay.Deterministic`; 30 `JournalImmutabilityTest`; 31 `restartOpensPaused`; 61 (перезапуск backend) |
 | INV-9 | 18 `Checker.NoNewsAccess` |
