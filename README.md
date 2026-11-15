@@ -10,29 +10,20 @@
 - [Архитектура](architecture.md)
 - [ADR](adr/README.md)
 - [Статус и открытые вопросы](status.md)
-- [Как ведём работу](workflow.md) — доска задач, issue, PR
+- [Как ведём работу](https://github.com/tinkoff-trade-strategies-checking/home/blob/main/workflow.md) — доска задач, issue, PR (в репозитории `home`)
 - [Wiki](https://github.com/tinkoff-trade-strategies-checking/documentation/wiki): Vision, Глоссарий
 
 Код: [frontend](https://github.com/tinkoff-trade-strategies-checking/frontend), [backend](https://github.com/tinkoff-trade-strategies-checking/backend), [core](https://github.com/tinkoff-trade-strategies-checking/core).
 
 ## Рабочее пространство
 
-Клонируйте все четыре репозитория в одну папку, тогда ссылки `../documentation/` из `AGENTS.md` кодовых репозиториев будут работать:
+Все репозитории клонируются рядом, в одну папку — проще всего через `home`:
 
 ```sh
-for r in documentation frontend backend core; do
-  git clone https://github.com/tinkoff-trade-strategies-checking/$r.git
-done
+git clone https://github.com/tinkoff-trade-strategies-checking/home.git
+cd home && sh scripts/clone-repos.sh
 ```
 
 ## ИИ-агенты
 
-Инструкции для агентов — `AGENTS.md` в корне каждого репозитория; общие правила проекта — `documentation/AGENTS.md`, `workflow.md`, `invariants.md`. Не создавайте `CLAUDE.md` рядом с `AGENTS.md`: Claude Code и opencode тогда перестанут читать `AGENTS.md` или прочитают только один из файлов.
-
-| Агент | Инструкции | Скиллы |
-|---|---|---|
-| Claude Code (с v2.1.277) | `AGENTS.md`, если в папке запуска и выше нет `CLAUDE.md` | `.claude/skills/` |
-| Codex | `AGENTS.md` от корня репозитория до папки запуска | `.agents/skills/` |
-| opencode | ближайший `AGENTS.md` вверх от папки запуска | `.agents/skills/`, `.claude/skills/`, `.opencode/skills/` |
-
-Скилл для Miro-доски — `.agents/skills/miro-board/`. Claude Code не читает `.agents/`, поэтому для него есть переходник `.claude/skills/miro-board-claude/`; в opencode он скрыт через `opencode.json`, чтобы скилл не появлялся дважды.
+Агенты запускаются из репозитория [home](https://github.com/tinkoff-trade-strategies-checking/home): там указатели на все репозитории, процесс работы, общие скиллы (в том числе для Miro-доски) и инструкции, как запускать Claude Code, Codex и opencode. Здесь — только продуктовые знания; карта для агентов — `AGENTS.md`.
