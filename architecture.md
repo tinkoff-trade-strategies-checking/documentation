@@ -86,7 +86,7 @@ flowchart TD
 | Связь | Как передаются данные | Где описан контракт |
 |---|---|---|
 | Интерфейс ↔ бэкенд | REST для команд и запросов, SSE для событий | `backend/api/openapi.yaml` |
-| Бэкенд ↔ Simulation Worker | gRPC: `Ping`, `ReplaySession` (воспроизведение журнала и отчёт), `GetBars` (бары) | `core/proto/` (копия в `backend`) |
+| Бэкенд ↔ Simulation Worker | gRPC: `Ping`, `ReplaySession` (воспроизведение журнала и отчёт; `blind = true` — слепой вид `blind_view`), `GetBars` (бары), `EstimateOrder` (оценка заявки; перевод слепых цен `OrderSpec.is_blind_price`), `ClassifyPeriods` (σ, MDD и категория окон периода); пары FIFO — `Report.round_trips` | `core/proto/` (копия в `backend`) |
 | Ядро ↔ логика DSL | Интерфейс проверки и выполнения стратегии | - |
 
 ## Запуск
