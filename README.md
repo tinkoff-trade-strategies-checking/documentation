@@ -13,6 +13,16 @@
 Код: [frontend](https://github.com/tinkoff-trade-strategies-checking/frontend), [backend](https://github.com/tinkoff-trade-strategies-checking/backend), [core](https://github.com/tinkoff-trade-strategies-checking/core), [DSL](https://github.com/tinkoff-trade-strategies-checking/dsl).
 
 
+## Проверка ссылок на тесты инвариантов
+
+`scripts/check-invariants.py` проверяет, что тесты из колонки «Проверка» в `invariants.md` существуют в `core` и `frontend`. Нужен Python 3, `core` и `frontend` лежат рядом с `documentation`:
+
+```
+python3 scripts/check-invariants.py [--core ../core] [--frontend ../frontend]
+```
+
+Ненайденные ссылки печатаются как `INV-N → ссылка`, код выхода 1. В CI — `.github/workflows/invariants.yml` (наблюдение, не обязательная проверка).
+
 ## Правила правки
 
 - Приоритет источников: `requirements.md` > `invariants.md` > `decisions.md` > wiki. Нашли противоречие — исправьте младший документ или спросите команду, не выбирайте молча.
