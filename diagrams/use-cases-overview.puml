@@ -7,7 +7,6 @@ title Т-Инвестиции: юзкейсы (обзор)
 actor "Пользователь" as User
 actor "Трейдер" as Trader
 actor "Автор алгоритма" as Author
-actor "Модератор" as Moderator
 actor "Оператор данных" as DataOp
 actor "MOEX ISS" as ISS <<система>>
 actor "Источники истории" as HistSrc <<система>>
@@ -15,7 +14,6 @@ actor "Источник новостей" as NewsSrc <<система>>
 
 Trader --|> User
 Author --|> User
-Moderator --|> User
 
 rectangle "Платформа" {
   package "Общее" {
@@ -43,11 +41,10 @@ rectangle "Платформа" {
     usecase "UC-19\nОпубликовать версию" as UC19
     usecase "UC-20\nФоркнуть алгоритм" as UC20
     usecase "UC-21\nСкрыть из каталога" as UC21
-    usecase "UC-23\nУдалить насовсем" as UC23
   }
   package "Данные" {
     usecase "UC-25\nЗагрузить снапшот MOEX ISS" as UC25
-    usecase "UC-26\nИмпортировать архив сделок" as UC26
+    usecase "UC-26\nИмпортировать архив минутных свечей" as UC26
   }
   package "Развитие" {
     usecase "UC-16\nWalk-forward" as UC16 <<развитие>>
@@ -85,7 +82,6 @@ Author --> UC19
 Author --> UC20
 Author --> UC21
 
-Moderator --> UC23
 DataOp --> UC25
 DataOp --> UC26
 UC25 --> ISS
