@@ -1,0 +1,31 @@
+name: invariants
+
+# Режим наблюдения: не в обязательных проверках (home/workflow.md, «Проверка»).
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  tests-exist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: documentation
+      - uses: actions/checkout@v4
+        with:
+          repository: tinkoff-trade-strategies-checking/core
+          path: core
+          fetch-depth: 1
+      - uses: actions/checkout@v4
+        with:
+          repository: tinkoff-trade-strategies-checking/frontend
+          path: frontend
+          fetch-depth: 1
+      - run: python3 documentation/scripts/check-invariants.py --core core --frontend frontend
