@@ -5,9 +5,7 @@ title Мастерская: алгоритмы
 
 actor "Пользователь" as User
 actor "Автор алгоритма" as Author
-actor "Модератор" as Moderator
 Author --|> User
-Moderator --|> User
 
 rectangle "Мастерская" {
   usecase "UC-20\nФоркнуть алгоритм" as UC20
@@ -23,7 +21,6 @@ rectangle "Мастерская" {
   usecase "UC-8\nПолучить и выгрузить отчёт" as UC8
   usecase "UC-21\nСкрыть из каталога" as UC21
   usecase "UC-22\nВыбрать алгоритмы в каталоге" as UC22
-  usecase "UC-23\nУдалить насовсем" as UC23
 }
 
 Author --> UC12
@@ -33,7 +30,6 @@ Author --> UC19
 Author --> UC21
 User --> UC18
 User --> UC22
-Moderator --> UC23
 
 UC14 ..> UC13 : <<include>>
 UC19 ..> UC13 : <<include>>
