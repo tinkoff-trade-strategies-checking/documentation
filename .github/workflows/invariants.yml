@@ -28,4 +28,9 @@ jobs:
           repository: tinkoff-trade-strategies-checking/frontend
           path: frontend
           fetch-depth: 1
-      - run: python3 documentation/scripts/check-invariants.py --core core --frontend frontend
+      - uses: actions/checkout@v4
+        with:
+          repository: tinkoff-trade-strategies-checking/backend
+          path: backend
+          fetch-depth: 1
+      - run: python3 documentation/scripts/check-invariants.py --core core --frontend frontend --backend backend
