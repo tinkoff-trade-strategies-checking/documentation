@@ -3,8 +3,11 @@
 
 Ссылки берутся из обратных кавычек:
   Suite.Name            — тест core: TEST/TEST_F/TEST_P/RC_GTEST_PROP в core/tests;
-  путь к файлу          — файл есть в core (tests/...), в frontend (frontend/...,
-                          либо имя файла/каталог где-то в frontend/src и e2e);
+  Класс.метод           — тест backend: метод (lowerCamel) с @Test/@ParameterizedTest
+                          в классе Класс в backend/src/test/java;
+  путь к файлу          — файл есть в core (tests/...), в backend (backend/...,
+                          src/..., либо *.java где-то в src/test/java), в frontend
+                          (frontend/..., либо имя файла/каталог где-то в frontend/src и e2e);
   INV-N: название теста — подстрока названия в it()/test()/describe() во
                           frontend/src и frontend/e2e (после «…» название обрезается).
 Ссылки с пометкой «удалён» рядом не проверяются.
@@ -19,7 +22,13 @@ from pathlib import Path
 CORE_TEST = re.compile(r"\b(?:TEST|TEST_F|TEST_P|RC_GTEST_PROP)\s*\(\s*(\w+)\s*,\s*(\w+)")
 FRONT_TITLE = re.compile(r"\b(?:it|test|describe)(?:\.\w+)*\(\s*(['\"`])(.*?)\1")
 SUITE_NAME = re.compile(r"^[A-Z]\w*\.[A-Z]\w*$")
-FILE_EXT = re.compile(r"\.(cpp|hpp|h|ts|tsx|py|yml|yaml)$")
+JAVA_REF = re.compile(r"^[A-Z]\w*\.[a-z]\w*$")
+JAVA_TEST = re.compile(
+    r"@(?:Test|ParameterizedTest)\b(?:\([^)]*\))?"
+    r"(?:\s*@\w+(?:\.\w+)*(?:\([^)]*\))?)*"
+    r"\s*(?:(?:public|protected|private|static|final|synchronized)\s+)*"
+    r"[\w<>\[\],.? ]+?\s+(\w+)\s*\(")
+FILE_EXT = re.compile(r"\.(cpp|hpp|h|ts|tsx|py|yml|yaml|java)$")
 SKIP_MARK = re.compile(r"удал[её]н", re.IGNORECASE)
 
 
@@ -51,6 +60,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--core", default="../core", type=Path)
     ap.add_argument("--frontend", default="../frontend", type=Path)
+    ap.add_argument("--backend", default="../backend", type=Path)
     ap.add_argument("--invariants", default=Path(__file__).resolve().parent.parent / "invariants.md", type=Path)
     a = ap.parse_args()
 
@@ -63,6 +73,14 @@ def main():
     titles = [t for src in read_files(a.frontend, ["src/**/*.ts", "e2e/**/*.ts"])
               for _, t in FRONT_TITLE.findall(src)]
 
+    if not a.backend.is_dir():
+        print("backend не найден: ссылки на его тесты не проверяются как найденные", file=sys.stderr)
+    java_tests = {}  # имя класса -> имена тестовых методов
+    for f in (a.backend / "src/test/java").glob("**/*.java"):
+        if f.is_file():
+            java_tests.setdefault(f.stem, set()).update(
+                JAVA_TEST.findall(f.read_text(encoding="utf-8", errors="replace")))
+
     def file_exists(ref):
         for r in expand_braces(ref):
             r = r.strip("/")
@@ -70,6 +88,12 @@ def main():
                 ok = (a.frontend / r[len("frontend/"):]).exists()
             elif r.startswith("core/"):
                 ok = (a.core / r[len("core/"):]).exists()
+            elif r.startswith("backend/"):
+                ok = (a.backend / r[len("backend/"):]).exists()
+            elif r.startswith("src/"):
+                ok = (a.backend / r).exists()
+            elif r.endswith(".java"):
+                ok = any(a.backend.glob(f"src/test/java/**/{r}"))
             elif r.startswith("tests/"):
                 ok = (a.core / r).exists()
             else:  # имя файла или каталог без префикса — ищем во frontend
@@ -89,6 +113,11 @@ def main():
                 s, n = ref.split(".")
                 if (s, n) not in core_tests:
                     missing.append((inv, ref, "тест не найден в core/tests"))
+            elif JAVA_REF.match(ref) and not FILE_EXT.search(ref):
+                checked += 1
+                c, n = ref.split(".")
+                if n not in java_tests.get(c, ()):
+                    missing.append((inv, ref, "тест не найден в backend/src/test/java"))
             elif ref.startswith("INV-"):
                 checked += 1
                 title = ref.split("…")[0].strip()
