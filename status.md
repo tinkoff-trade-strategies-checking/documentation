@@ -8,7 +8,7 @@
 - Защита — май 2027.
 
 ## Открытые вопросы
-- `INV-3` и `INV-9` пока без автотестов до реализации `dsl` и интеграции в `core`/`backend` (`invariants.md`).
+- Открытых вопросов нет.
 
 ## Принято и разблокировано (22.11.2026, documentation#34)
 - Спецификация `dsl.md` v1 и интеграция: `dsl` — C++20-библиотека (CMake, LLVM, `-ffp-contract=off` без `-ffast-math`), подключаемая к `core` (`Check` / `Compile` / `Step`), `backend` (`workshop`) вызывает проверку через gRPC-метод `CheckStrategy` в Simulation Worker (`decisions.md`, `architecture.md`).
