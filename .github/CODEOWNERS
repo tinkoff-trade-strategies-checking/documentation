@@ -1,0 +1,5 @@
+# Владелец проверок: скрипты инвариантов, эталоны и CI. PR, меняющий их, зовёт владельца (home/workflow.md, «Проверка»).
+/scripts/check-invariants.py  @Denmurzik
+/.github/workflows/           @Denmurzik
+/invariants.md                @Denmurzik
+/.github/CODEOWNERS           @Denmurzik

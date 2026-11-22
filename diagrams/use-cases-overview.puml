@@ -18,7 +18,7 @@ Author --|> User
 rectangle "Платформа" {
   package "Общее" {
     usecase "UC-17\nВыбрать тип периода" as UC17
-    usecase "UC-1\nЗарегистрироваться и войти" as UC1
+    usecase "UC-1\nВойти в систему" as UC1
     usecase "UC-10\nПосмотреть историю" as UC10
     usecase "UC-11\nВоспроизвести сессию" as UC11
     usecase "UC-18\nПовторить прогон" as UC18
